@@ -47,7 +47,8 @@ public:
                 client->async_read_some(boost::asio::buffer(*buf), [buf, client](const boost::system::error_code& ec, std::size_t bytes_transferred) {
                     if (!ec) {
                         std::println("Was able to read {} bytes: {}", bytes_transferred, trim(std::string_view{buf.get()->data(), bytes_transferred}));
-                        client->async_write_some(boost::asio::buffer(*buf, bytes_transferred), [](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                        client->async_write_some(boost::asio::buffer(buf.get()->data(), bytes_transferred), [buf](const boost::system::error_code& ec, std::size_t bytes_transferred) {
+                            (void)buf;
                             if (!ec) {
                                 std::println("Written {} bytes", bytes_transferred);
                             }
