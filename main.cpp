@@ -1,5 +1,5 @@
-#include <iostream>
+#include <print>
 
 int main(int, char**){
-    std::cout << "Hello, from kroxy!\n";
+    std::println("Run me daddy");
 }
