@@ -218,7 +218,7 @@ int main(int, char**){
 
                 if (fd == ses->client && ses->rd_bytes > 0) {
                     // It writes only 2 bytes, because then, we have no way of triggering wait
-                    ssize_t send_bytes = send(ses->service, ses->read_buf.data() + ses->rd_offset, 2, 0);
+                    ssize_t send_bytes = send(ses->service, ses->read_buf.data() + ses->rd_offset, ses->rd_bytes, 0);
                     if (send_bytes > 0) {
                         ses->rd_bytes -= send_bytes;
                         ses->rd_offset += send_bytes;
@@ -249,7 +249,8 @@ int main(int, char**){
                         perror("Error writing to service from client");
                     }
                 } else if (fd == ses->service && ses->wr_bytes > 0) {
-                    ssize_t send_bytes = send(ses->client, ses->write_buf.data() + ses->wr_offset, 2, 0);
+                    // FIXME: it resets connection, if not sent in 1 batch, why?
+                    ssize_t send_bytes = send(ses->client, ses->write_buf.data() + ses->wr_offset, ses->wr_bytes, 0);
                     if (send_bytes > 0) {
                         ses->wr_bytes -= send_bytes;
                         ses->wr_offset += send_bytes;
