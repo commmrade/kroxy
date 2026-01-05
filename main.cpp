@@ -33,10 +33,12 @@ struct Session {
     int service;
 
     std::array<char, 1024> read_buf; // from client to service
+    size_t rd_offset{};
     size_t rd_bytes{};
 
     std::array<char, 1024> write_buf; // from service to client
-    size_t wr_bytes;
+    size_t wr_offset{};
+    size_t wr_bytes{};
 };
 
 
@@ -196,9 +198,21 @@ int main(int, char**){
                 }
 
                 if (fd == ses->client && ses->rd_bytes > 0) {
-                    ssize_t send_bytes = send(ses->service, ses->read_buf.data(), ses->rd_bytes, 0);
+                    ssize_t send_bytes = send(ses->service, ses->read_buf.data() + ses->rd_offset, ses->rd_bytes, 0);
                     if (send_bytes > 0) {
                         ses->rd_bytes -= send_bytes;
+                        ses->rd_offset += send_bytes;
+
+                        if (ses->rd_bytes == 0) {
+                            ses->rd_bytes = 0;
+                            ses->rd_offset = 0;
+
+                            epoll_event ev{};
+                            ev.events = EPOLLIN;
+                            ev.data.fd = fd;
+
+                            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
+                        }
                     } else if (send_bytes == -1 && errno == EAGAIN) {
                         epoll_event ev{};
                         ev.events = EPOLLIN | EPOLLOUT;
@@ -209,9 +223,21 @@ int main(int, char**){
                         throw std::runtime_error("Error writing to service from client");
                     }
                 } else if (fd == ses->service && ses->wr_bytes > 0) {
-                    ssize_t send_bytes = send(ses->client, ses->write_buf.data(), ses->wr_bytes, 0);
+                    ssize_t send_bytes = send(ses->client, ses->write_buf.data() + ses->wr_offset, ses->wr_bytes, 0);
                     if (send_bytes > 0) {
                         ses->wr_bytes -= send_bytes;
+                        ses->wr_offset += send_bytes;
+
+                        if (ses->wr_bytes == 0) {
+                            ses->wr_bytes = 0;
+                            ses->wr_offset = 0;
+
+                            epoll_event ev{};
+                            ev.events = EPOLLIN;
+                            ev.data.fd = fd;
+
+                            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
+                        }
                     } else if (send_bytes == -1 && errno == EAGAIN) {
                         epoll_event ev{};
                         ev.events = EPOLLIN | EPOLLOUT;
