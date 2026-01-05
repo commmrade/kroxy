@@ -186,18 +186,17 @@ int main(int, char**){
                 if (event.events & EPOLLIN) {
                     if (fd == ses->client) {
                         ssize_t recv_bytes = recv(ses->client, ses->read_buf.data() + ses->rd_bytes, ses->read_buf.size(), 0);
-                        ses->rd_bytes = recv_bytes;
+                        assert(recv_bytes >= 0);
+                        ses->rd_bytes += recv_bytes;
                     } else if (fd == ses->service) {
-                        ssize_t recv_bytes = recv(ses->service, ses->write_buf.data(), ses->write_buf.size(), 0);
-                        ses->wr_bytes = recv_bytes;
+                        ssize_t recv_bytes = recv(ses->service, ses->write_buf.data() + ses->wr_bytes, ses->write_buf.size(), 0);
+                        assert(recv_bytes >= 0);
+                        ses->wr_bytes += recv_bytes;
                     }
-                    // if rd bytes > 0 write to service
                 }
 
                 if (fd == ses->client && ses->rd_bytes > 0) {
-                    // TODO: get back rd bytes offset
                     ssize_t send_bytes = send(ses->service, ses->read_buf.data(), ses->rd_bytes, 0);
-                    // ssize_t send_bytes = send(ses->service, ses->read_buf.end() - ses->rd_bytes, ses->rd_bytes, 0);
                     if (send_bytes > 0) {
                         ses->rd_bytes -= send_bytes;
                     } else if (send_bytes == -1 && errno == EAGAIN) {
@@ -210,9 +209,7 @@ int main(int, char**){
                         throw std::runtime_error("Error writing to service from client");
                     }
                 } else if (fd == ses->service && ses->wr_bytes > 0) {
-                    // TODO: add write buf wr bytes offset
                     ssize_t send_bytes = send(ses->client, ses->write_buf.data(), ses->wr_bytes, 0);
-                    // ssize_t send_bytes = send(ses->client, ses->write_buf.end() - ses->wr_bytes, ses->wr_bytes, 0);
                     if (send_bytes > 0) {
                         ses->wr_bytes -= send_bytes;
                     } else if (send_bytes == -1 && errno == EAGAIN) {
