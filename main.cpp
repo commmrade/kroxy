@@ -143,6 +143,8 @@ int main(int, char**){
         return -1;
     }
 
+    // TODO: Handle shutting down
+
     std::unordered_map<int, std::shared_ptr<Session>> sessions; // sock -> session
     while (true) {
         std::array<epoll_event, 10> events;
@@ -182,7 +184,8 @@ int main(int, char**){
             } else {
                 auto ses = sessions[fd];
                 if (!ses) {
-                    throw std::runtime_error("Session is empty for some fucking reason");
+                    std::println("Session is empty");
+                    continue;
                 }
 
                 if (event.events & EPOLLIN) {
@@ -190,15 +193,32 @@ int main(int, char**){
                         ssize_t recv_bytes = recv(ses->client, ses->read_buf.data() + ses->rd_bytes, ses->read_buf.size(), 0);
                         assert(recv_bytes >= 0);
                         ses->rd_bytes += recv_bytes;
+
+                        if (recv_bytes) {
+                            epoll_event ev{};
+                            ev.events = EPOLLIN | EPOLLOUT;
+                            ev.data.fd = fd;
+
+                            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
+                        }
                     } else if (fd == ses->service) {
                         ssize_t recv_bytes = recv(ses->service, ses->write_buf.data() + ses->wr_bytes, ses->write_buf.size(), 0);
                         assert(recv_bytes >= 0);
                         ses->wr_bytes += recv_bytes;
+
+                        if (recv_bytes) {
+                            epoll_event ev{};
+                            ev.events = EPOLLIN | EPOLLOUT;
+                            ev.data.fd = fd;
+
+                            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
+                        }
                     }
                 }
 
                 if (fd == ses->client && ses->rd_bytes > 0) {
-                    ssize_t send_bytes = send(ses->service, ses->read_buf.data() + ses->rd_offset, ses->rd_bytes, 0);
+                    // It writes only 2 bytes, because then, we have no way of triggering wait
+                    ssize_t send_bytes = send(ses->service, ses->read_buf.data() + ses->rd_offset, 2, 0);
                     if (send_bytes > 0) {
                         ses->rd_bytes -= send_bytes;
                         ses->rd_offset += send_bytes;
@@ -220,10 +240,16 @@ int main(int, char**){
 
                         epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
                     } else {
-                        throw std::runtime_error("Error writing to service from client");
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
+                        close(ses->client);
+                        close(ses->service);
+
+                        sessions.erase(ses->client);
+                        sessions.erase(ses->service);
+                        perror("Error writing to service from client");
                     }
                 } else if (fd == ses->service && ses->wr_bytes > 0) {
-                    ssize_t send_bytes = send(ses->client, ses->write_buf.data() + ses->wr_offset, ses->wr_bytes, 0);
+                    ssize_t send_bytes = send(ses->client, ses->write_buf.data() + ses->wr_offset, 2, 0);
                     if (send_bytes > 0) {
                         ses->wr_bytes -= send_bytes;
                         ses->wr_offset += send_bytes;
@@ -245,7 +271,13 @@ int main(int, char**){
 
                         epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
                     } else {
-                        throw std::runtime_error("Error writing to clietn from service");
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
+                        close(ses->client);
+                        close(ses->service);
+
+                        sessions.erase(ses->client);
+                        sessions.erase(ses->service);
+                        perror("writing from service to client");
                     }
                 }
             }
