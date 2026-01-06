@@ -1,5 +1,6 @@
 #include <array>
 #include <asm-generic/socket.h>
+#include <boost/asio/error.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/placeholders.hpp>
@@ -60,10 +61,10 @@ struct Session : public std::enable_shared_from_this<Session> {
 
                 // Write buffered data, now we are in half-closed state
                 client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-            } else {
+            } else if (ec != boost::asio::error::operation_aborted) {
+                std::println("client read failed: {}", ec.message());
                 close_session();
             }
-            std::println("client read failed: {}", ec.message());
         }
     }
     void do_read_service(const boost::system::error_code& ec, std::size_t bytes_tf) {
@@ -81,10 +82,10 @@ struct Session : public std::enable_shared_from_this<Session> {
                 }
                 // Write buffered data, now we are in half-closed state
                 service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-            } else {
+            } else if (ec != boost::asio::error::operation_aborted) {
+                std::println("service read failed: {}", ec.message());
                 close_session();
             }
-            std::println("service read failed: {}", ec.message());
         }
     }
 
@@ -151,7 +152,7 @@ public:
         auto ses = std::make_shared<Session>(ctx_, acceptor_);
         acceptor_.async_accept(ses->client_sock, [this, ses](const boost::system::error_code& ec) {
             if (!ec) {
-                boost::asio::ip::tcp::endpoint google_ep{boost::asio::ip::make_address("142.250.81.238"), 80};
+                boost::asio::ip::tcp::endpoint google_ep{boost::asio::ip::make_address("173.194.68.153"), 80};
                 ses->service_sock.connect(google_ep);
                 if (!ses->service_sock.is_open()) {
                     throw std::runtime_error("Could not connect to googol");
