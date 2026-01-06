@@ -5,7 +5,6 @@
 #include <boost/asio/placeholders.hpp>
 #include <boost/system/detail/error_code.hpp>
 #include <cassert>
-#include <cerrno>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -17,7 +16,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include <unordered_map>
 #include <fcntl.h>
 #include <poll.h>
 #include <boost/asio.hpp>
@@ -27,15 +25,13 @@ struct Session : public std::enable_shared_from_this<Session> {
 
     boost::asio::ip::tcp::socket client_sock;
     bool client_eof{false};
-    bool client_stop_mne_ne_priyatno{false};
 
     boost::asio::ip::tcp::socket service_sock;
     bool service_eof{false};
-    bool service_stop_mne_ne_priyatno{false};
 
     std::array<char, 2048> read_buf; // from client to service
-    size_t rd_offset{};
     size_t rd_bytes{};
+    size_t rd_offset{};
 
     std::array<char, 2048> write_buf; // from service to client
     size_t wr_offset{};
@@ -52,22 +48,18 @@ struct Session : public std::enable_shared_from_this<Session> {
         if (!ec) {
             rd_bytes += bytes_tf;
             std::println("rd bytes: {}", bytes_tf);
-
-            if (!service_stop_mne_ne_priyatno) {
-                service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-            }
+            service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
         } else {
             if (ec == boost::asio::error::eof) {
                 client_eof = true;
                 if (rd_bytes == 0) {
                     client_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
-                    client_stop_mne_ne_priyatno = true;
+                    close_session();
                     return;
                 }
 
-                if (!client_stop_mne_ne_priyatno) {
-                    client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-                }
+                // Write buffered data, now we are in half-closed state
+                client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
             } else {
                 close_session();
             }
@@ -78,20 +70,17 @@ struct Session : public std::enable_shared_from_this<Session> {
         if (!ec) {
             wr_bytes += bytes_tf;
             std::println("wr bytes: {}", bytes_tf);
-            if (!client_stop_mne_ne_priyatno) {
-                client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-            }
+            client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
         } else {
             if (ec == boost::asio::error::eof) {
                 service_eof = true;
                 if (wr_bytes == 0) {
                     service_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
-                    service_stop_mne_ne_priyatno = true;
+                    close_session();
                     return;
                 }
-                if (!service_stop_mne_ne_priyatno) {
-                    service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-                }
+                // Write buffered data, now we are in half-closed state
+                service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
             } else {
                 close_session();
             }
@@ -105,22 +94,16 @@ struct Session : public std::enable_shared_from_this<Session> {
             wr_offset += bytes_tf;
 
             if (client_eof) {
+                // At this point we got a FIN from client, we sent all previously buffered data to client, can send FIN back to client and then close
                 client_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
-                client_stop_mne_ne_priyatno = true;
-                std::println("shut client and close");
                 close_session();
                 return;
             }
 
-            if (wr_bytes == 0) {
-                // Start reading again
-                service_sock.async_read_some(boost::asio::buffer(write_buf), std::bind(&Session::do_read_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-            } else {
-                // Continue writing to client
-                if (!client_stop_mne_ne_priyatno) {
-                    client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-                }
+            if (wr_bytes > 0) {
+                client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
             }
+            service_sock.async_read_some(boost::asio::buffer(write_buf), std::bind(&Session::do_read_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
         } else {
             close_session();
             std::println("write to client failed: {}", ec.message());
@@ -132,22 +115,16 @@ struct Session : public std::enable_shared_from_this<Session> {
             rd_offset += bytes_tf;
 
             if (service_eof) {
+                // At this point we got a FIN from service, we sent all previously buffered data to service, can send FIN back to service and then close
                 service_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
-                service_stop_mne_ne_priyatno = true;
-                std::println("shut service and close");
                 close_session();
                 return;
             }
 
-            if (rd_bytes == 0) {
-                // Start reading again
-                client_sock.async_read_some(boost::asio::buffer(read_buf), std::bind(&Session::do_read_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-            } else {
-                // Continue writing to client
-                if (!service_stop_mne_ne_priyatno) {
-                    service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-                }
+            if (rd_bytes > 0) {
+                service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
             }
+            client_sock.async_read_some(boost::asio::buffer(read_buf), std::bind(&Session::do_read_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
         } else {
             close_session();
             std::println("write to service failed: {}", ec.message());
