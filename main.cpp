@@ -5,7 +5,6 @@
 #include <cstdio>
 #include <memory>
 #include <print>
-#include <stdexcept>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -13,7 +12,6 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unordered_map>
-#include <vector>
 #include <fcntl.h>
 #include <poll.h>
 
@@ -31,9 +29,9 @@ constexpr std::string_view PORT = "8080";
 
 struct Session {
     int client;
-    bool client_eof{false};
+    bool client_eos{false};
     int service;
-    bool service_eof{false};
+    bool service_eos{false};
 
     std::array<char, 2048> read_buf; // from client to service
     size_t rd_offset{};
@@ -78,9 +76,11 @@ int make_google_socket() {
     return sock;
 }
 
-void close_connection(int epoll_fd, int first_fd, int second_fd, std::unordered_map<int, std::shared_ptr<Session>>& sessions) {
-    int ret = shutdown(first_fd, SHUT_WR);
-    assert(ret >= 0);
+void close_connection(int epoll_fd, int first_fd, int second_fd, std::unordered_map<int, std::shared_ptr<Session>>& sessions, bool should_shut = false) {
+    if (should_shut) {
+        int ret = shutdown(first_fd, SHUT_WR);
+        assert(ret >= 0);
+    }
 
     // delete and close sockets & session
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, first_fd, nullptr);
@@ -151,7 +151,6 @@ int main(int, char**){
         return -1;
     }
 
-
     epoll_event sock_ev{};
     sock_ev.events = EPOLLIN;
     sock_ev.data.fd = sock;
@@ -162,7 +161,6 @@ int main(int, char**){
     }
 
     std::unordered_map<int, std::shared_ptr<Session>> sessions; // sock -> session
-    int lpidx{};
     while (true) {
         std::array<epoll_event, 10> events;
         ret = epoll_wait(epoll_fd, events.data(), events.size(), -1);
@@ -179,12 +177,12 @@ int main(int, char**){
                 assert(client >= 0);
                 epoll_event c_ev{};
                 c_ev.data.fd = client;
-                c_ev.events = EPOLLIN;
+                c_ev.events = EPOLLIN | EPOLLRDHUP;
 
                 int service = make_google_socket();
                 assert(service >= 0);
                 epoll_event s_ev{};
-                s_ev.events = EPOLLIN;
+                s_ev.events = EPOLLIN | EPOLLRDHUP;
                 s_ev.data.fd = service;
 
                 auto ses = std::make_shared<Session>();
@@ -204,30 +202,15 @@ int main(int, char**){
                     continue;
                 }
 
-                if (event.events & EPOLLHUP) {
-                    // TODO: why it doesnt print hup? epollhup is not working
-                    std::println("hup");
-                } else if (event.events & EPOLLIN) {
+                if (event.events & EPOLLIN) {
                     if (fd == ses->client) {
                         ssize_t recv_bytes = recv(fd, ses->read_buf.data() + ses->rd_bytes, ses->read_buf.size(), 0);
 
                         if (recv_bytes == 0) { // got end of stream
                             // write buffered data (if there is) to ses->client and close connection
-                            ses->client_eof = true;
+                            ses->client_eos = true;
                             if (ses->rd_bytes == 0) {
-                                // close_connection(epoll_fd, ses->client, ses->service, sessions);
-                                ret = shutdown(ses->client, SHUT_WR);
-                                assert(ret >= 0);
-
-                                // delete and close sockets & session
-                                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->client, nullptr);
-                                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->service, nullptr);
-
-                                close(ses->client);
-                                close(ses->service);
-
-                                sessions.erase(ses->client);
-                                sessions.erase(ses->service);
+                                close_connection(epoll_fd, ses->client, ses->service, sessions, true);
                             }
                         }
 
@@ -245,19 +228,9 @@ int main(int, char**){
                         ssize_t recv_bytes = recv(fd, ses->write_buf.data() + ses->wr_bytes, ses->write_buf.size(), 0);
                         if (recv_bytes == 0) {
                             // write buffered data (if there is) to ses->service and close connection
-                            ses->service_eof = true;
+                            ses->service_eos = true;
                             if (ses->wr_bytes) {
-                                ret = shutdown(ses->service, SHUT_WR);
-                                assert(ret >= 0);
-
-                                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->client, nullptr);
-                                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->service, nullptr);
-
-                                close(ses->client);
-                                close(ses->service);
-
-                                sessions.erase(ses->client);
-                                sessions.erase(ses->service);
+                                close_connection(epoll_fd, ses->service, ses->client, sessions, true);
                             }
                         }
                         assert(recv_bytes >= 0);
@@ -290,19 +263,9 @@ int main(int, char**){
                             epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
                         }
 
-                        if (ses->service_eof) {
+                        if (ses->service_eos) {
                             // if it is EOS send buffered data and then send FIN back, step 3 of 4 way tcp termination, close and delete sockets & session
-                            ret = shutdown(ses->service, SHUT_WR);
-                            assert(ret >= 0);
-
-                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->client, nullptr);
-                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->service, nullptr);
-
-                            close(ses->client);
-                            close(ses->service);
-
-                            sessions.erase(ses->client);
-                            sessions.erase(ses->service);
+                            close_connection(epoll_fd, ses->service, ses->client, sessions, true);
                         }
                     } else if (send_bytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                         epoll_event ev{};
@@ -311,14 +274,7 @@ int main(int, char**){
 
                         epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
                     } else {
-                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->client, nullptr);
-                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->service, nullptr);
-
-                        close(ses->client);
-                        close(ses->service);
-
-                        sessions.erase(ses->client);
-                        sessions.erase(ses->service);
+                        close_connection(epoll_fd, ses->client, ses->service, sessions);
                         perror("Error writing to service from client");
                     }
                 } else if (fd == ses->service && ses->wr_bytes > 0) {
@@ -339,20 +295,9 @@ int main(int, char**){
                             epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
                         }
 
-                        if (ses->client_eof) {
+                        if (ses->client_eos) {
                             // Send fin back
-                            ret = shutdown(ses->client, SHUT_WR);
-                            assert(ret >= 0);
-
-                            // delete and close sockets & session
-                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->client, nullptr);
-                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->service, nullptr);
-
-                            close(ses->client);
-                            close(ses->service);
-
-                            sessions.erase(ses->client);
-                            sessions.erase(ses->service);
+                            close_connection(epoll_fd, ses->client, ses->service, sessions, true);
                         }
                     } else if (send_bytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                         epoll_event ev{};
@@ -361,14 +306,7 @@ int main(int, char**){
 
                         epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
                     } else {
-                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->client, nullptr);
-                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->service, nullptr);
-
-                        close(ses->client);
-                        close(ses->service);
-
-                        sessions.erase(ses->client);
-                        sessions.erase(ses->service);
+                        close_connection(epoll_fd, ses->client, ses->service, sessions);
                         perror("writing from service to client");
                     }
                 }
