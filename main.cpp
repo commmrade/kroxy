@@ -54,14 +54,16 @@ struct Session : public std::enable_shared_from_this<Session> {
             if (ec == boost::asio::error::eof) {
                 client_eof = true;
                 if (rd_bytes == 0) {
-                    client_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+                    // Proxy client's FIN to Service
+                    service_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
                     close_session();
                     return;
                 }
 
                 // Write buffered data, now we are in half-closed state
+                // Not sure, if this is correct tho, after i changed  rd bytes == 0 part
                 client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-            } else if (ec != boost::asio::error::operation_aborted) {
+            } else {
                 std::println("client read failed: {}", ec.message());
                 close_session();
             }
@@ -76,13 +78,14 @@ struct Session : public std::enable_shared_from_this<Session> {
             if (ec == boost::asio::error::eof) {
                 service_eof = true;
                 if (wr_bytes == 0) {
-                    service_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+                    client_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
                     close_session();
                     return;
                 }
                 // Write buffered data, now we are in half-closed state
+                // Not sure, if this is correct tho, after i changed  rd bytes == 0 part
                 service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
-            } else if (ec != boost::asio::error::operation_aborted) {
+            } else {
                 std::println("service read failed: {}", ec.message());
                 close_session();
             }
@@ -159,7 +162,7 @@ public:
         acceptor_.async_accept(ses->client_sock, [this, ses](const boost::system::error_code& ec) {
             if (!ec) {
                 boost::asio::ip::tcp::endpoint google_ep{boost::asio::ip::make_address("173.194.68.153"), 80};
-                ses->service_sock.connect(google_ep);
+                ses->service_sock.connect(google_ep); // idk that it is blocking
                 if (!ses->service_sock.is_open()) {
                     throw std::runtime_error("Could not connect to googol");
                 }
