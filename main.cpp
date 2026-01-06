@@ -1,10 +1,16 @@
 #include <array>
 #include <asm-generic/socket.h>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/address.hpp>
+#include <boost/asio/placeholders.hpp>
+#include <boost/system/detail/error_code.hpp>
 #include <cassert>
 #include <cerrno>
 #include <cstdio>
+#include <functional>
 #include <memory>
 #include <print>
+#include <stdexcept>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -14,24 +20,18 @@
 #include <unordered_map>
 #include <fcntl.h>
 #include <poll.h>
+#include <boost/asio.hpp>
 
-#define TODO(msg) throw std::runtime_error(msg)
+struct Session : public std::enable_shared_from_this<Session> {
+    boost::asio::ip::tcp::acceptor& sock;
 
-template<typename T>
-struct defer {
-    T f_;
-    ~defer() {
-        f_();
-    }
-};
+    boost::asio::ip::tcp::socket client_sock;
+    bool client_eof{false};
+    bool client_stop_mne_ne_priyatno{false};
 
-constexpr std::string_view PORT = "8080";
-
-struct Session {
-    int client;
-    bool client_eos{false};
-    int service;
-    bool service_eos{false};
+    boost::asio::ip::tcp::socket service_sock;
+    bool service_eof{false};
+    bool service_stop_mne_ne_priyatno{false};
 
     std::array<char, 2048> read_buf; // from client to service
     size_t rd_offset{};
@@ -40,279 +40,157 @@ struct Session {
     std::array<char, 2048> write_buf; // from service to client
     size_t wr_offset{};
     size_t wr_bytes{};
+
+    Session(boost::asio::io_context& ctx, boost::asio::ip::tcp::acceptor& s) : sock(s), client_sock(ctx), service_sock(ctx) {}
+
+    void run() {
+        client_sock.async_read_some(boost::asio::buffer(read_buf.data() + rd_bytes, read_buf.size() - rd_bytes), std::bind(&Session::do_read_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+        service_sock.async_read_some(boost::asio::buffer(write_buf.data() + wr_bytes, write_buf.size() - wr_bytes), std::bind(&Session::do_read_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+    }
+
+    void do_read_client(const boost::system::error_code& ec, std::size_t bytes_tf) {
+        if (!ec) {
+            rd_bytes += bytes_tf;
+            std::println("rd bytes: {}", bytes_tf);
+
+            if (!service_stop_mne_ne_priyatno) {
+                service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+            }
+        } else {
+            if (ec == boost::asio::error::eof) {
+                client_eof = true;
+                if (rd_bytes == 0) {
+                    client_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+                    client_stop_mne_ne_priyatno = true;
+                    return;
+                }
+
+                if (!client_stop_mne_ne_priyatno) {
+                    client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+                }
+            } else {
+                close_session();
+            }
+            std::println("client read failed: {}", ec.message());
+        }
+    }
+    void do_read_service(const boost::system::error_code& ec, std::size_t bytes_tf) {
+        if (!ec) {
+            wr_bytes += bytes_tf;
+            std::println("wr bytes: {}", bytes_tf);
+            if (!client_stop_mne_ne_priyatno) {
+                client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+            }
+        } else {
+            if (ec == boost::asio::error::eof) {
+                service_eof = true;
+                if (wr_bytes == 0) {
+                    service_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+                    service_stop_mne_ne_priyatno = true;
+                    return;
+                }
+                if (!service_stop_mne_ne_priyatno) {
+                    service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+                }
+            } else {
+                close_session();
+            }
+            std::println("service read failed: {}", ec.message());
+        }
+    }
+
+    void do_write_client(const boost::system::error_code& ec, std::size_t bytes_tf) {
+        if (!ec) {
+            wr_bytes -= bytes_tf;
+            wr_offset += bytes_tf;
+
+            if (client_eof) {
+                client_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+                client_stop_mne_ne_priyatno = true;
+                std::println("shut client and close");
+                close_session();
+                return;
+            }
+
+            if (wr_bytes == 0) {
+                // Start reading again
+                service_sock.async_read_some(boost::asio::buffer(write_buf), std::bind(&Session::do_read_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+            } else {
+                // Continue writing to client
+                if (!client_stop_mne_ne_priyatno) {
+                    client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+                }
+            }
+        } else {
+            close_session();
+            std::println("write to client failed: {}", ec.message());
+        }
+    }
+    void do_write_service(const boost::system::error_code& ec, std::size_t bytes_tf) {
+        if (!ec) {
+            rd_bytes -= bytes_tf;
+            rd_offset += bytes_tf;
+
+            if (service_eof) {
+                service_sock.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+                service_stop_mne_ne_priyatno = true;
+                std::println("shut service and close");
+                close_session();
+                return;
+            }
+
+            if (rd_bytes == 0) {
+                // Start reading again
+                client_sock.async_read_some(boost::asio::buffer(read_buf), std::bind(&Session::do_read_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+            } else {
+                // Continue writing to client
+                if (!service_stop_mne_ne_priyatno) {
+                    service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+                }
+            }
+        } else {
+            close_session();
+            std::println("write to service failed: {}", ec.message());
+        }
+    }
+
+    void close_session() {
+        client_sock.close();
+        service_sock.close();
+    }
 };
 
 
-bool set_blocking(int sock, bool value) {
-    if (!value) {
-        int flags = fcntl(sock, F_GETFL, 0);
-        if (flags == -1) return false;
-        flags = value ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK);
-        return (fcntl(sock, F_SETFL, flags) == 0);
+class Server {
+    boost::asio::io_context& ctx_;
+    boost::asio::ip::tcp::acceptor acceptor_;
+public:
+    Server(boost::asio::io_context& ctx, boost::asio::ip::address addr, unsigned short port) : ctx_(ctx), acceptor_(ctx_, {addr, port}) {}
+
+    void run() {
+        start_accept();
     }
-    return true;
-}
+    void start_accept() {
+        auto ses = std::make_shared<Session>(ctx_, acceptor_);
+        acceptor_.async_accept(ses->client_sock, [this, ses](const boost::system::error_code& ec) {
+            if (!ec) {
+                boost::asio::ip::tcp::endpoint google_ep{boost::asio::ip::make_address("142.250.81.238"), 80};
+                ses->service_sock.connect(google_ep);
+                if (!ses->service_sock.is_open()) {
+                    throw std::runtime_error("Could not connect to googol");
+                }
 
-
-int make_google_socket() {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    assert(sock >= 0);
-
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    addrinfo *res, *p;
-    int ret = getaddrinfo("google.com", "80", &hints, &res);
-    assert(ret >= 0);
-    for (p = res; p != nullptr; p = p->ai_next) {
-        ret = connect(sock, p->ai_addr, p->ai_addrlen);
-        if (ret < 0) {
-            continue;
-        }
-        break;
+                ses->run();
+            }
+            start_accept();
+        });
     }
-    assert(ret >= 0);
-    freeaddrinfo(res);
-    return sock;
-}
-
-void close_connection(int epoll_fd, int first_fd, int second_fd, std::unordered_map<int, std::shared_ptr<Session>>& sessions, bool should_shut = false) {
-    if (should_shut) {
-        int ret = shutdown(first_fd, SHUT_WR);
-        assert(ret >= 0);
-    }
-
-    // delete and close sockets & session
-    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, first_fd, nullptr);
-    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, second_fd, nullptr);
-
-    close(first_fd);
-    close(second_fd);
-
-    sessions.erase(first_fd);
-    sessions.erase(second_fd);
-}
+};
 
 int main(int, char**){
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        perror("socket");
-        return -1;
-    }
-    defer sock_free{[sock] {
-        close(sock);
-    }};
-
-    int yes = 1;
-    int ret = setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-    if (ret < 0) {
-        perror("setsockopt");
-        return -1;
-    }
-    assert(set_blocking(sock, false));
-
-
-    addrinfo hints{};
-    addrinfo* res = nullptr;
-    addrinfo* p = nullptr;
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE; // local machine addr (for bind)
-    ret = getaddrinfo(nullptr, PORT.data(), &hints, &res);
-    if (ret < 0) {
-        perror("getaddrinfo");
-        return -1;
-    }
-    for (p = res; p != nullptr; p = p->ai_next) {
-        ret = bind(sock, p->ai_addr, p->ai_addrlen);
-        if (ret < 0) {
-            perror("bind");
-            continue;
-        }
-        break;
-    }
-    if (ret < 0) {
-        perror("failed to find addr");
-        return -1;
-    }
-    defer addr_free{[res] {
-        freeaddrinfo(res);
-    }};
-
-    ret = listen(sock, 99);
-    if (ret < 0) {
-        perror("listen");
-        return -1;
-    }
-
-    int epoll_fd = epoll_create(88);
-    if (epoll_fd < 0) {
-        perror("epoll_create");
-        return -1;
-    }
-
-    epoll_event sock_ev{};
-    sock_ev.events = EPOLLIN;
-    sock_ev.data.fd = sock;
-    ret = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock, &sock_ev);
-    if (ret < 0) {
-        perror("epoll_ctl: add");
-        return -1;
-    }
-
-    std::unordered_map<int, std::shared_ptr<Session>> sessions; // sock -> session
-    while (true) {
-        std::array<epoll_event, 10> events;
-        ret = epoll_wait(epoll_fd, events.data(), events.size(), -1);
-        if (ret < 0) {
-            perror("epoll_wait");
-            return -1;
-        }
-
-        for (auto i = 0; i < ret; ++i) {
-            auto &event = events[i];
-            auto fd = event.data.fd;
-            if (fd == sock) {
-                int client = accept(sock, nullptr, nullptr);
-                assert(client >= 0);
-                epoll_event c_ev{};
-                c_ev.data.fd = client;
-                c_ev.events = EPOLLIN | EPOLLRDHUP;
-
-                int service = make_google_socket();
-                assert(service >= 0);
-                epoll_event s_ev{};
-                s_ev.events = EPOLLIN | EPOLLRDHUP;
-                s_ev.data.fd = service;
-
-                auto ses = std::make_shared<Session>();
-                ses->client = client;
-                ses->service = service;
-
-                epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client, &c_ev);
-                epoll_ctl(epoll_fd, EPOLL_CTL_ADD, service, &s_ev);
-
-                // Both point to the same session
-                sessions.emplace(client, ses);
-                sessions.emplace(service, ses);
-            } else {
-                auto ses = sessions[fd];
-                if (!ses) {
-                    std::println("Session is empty");
-                    continue;
-                }
-
-                if (event.events & EPOLLIN) {
-                    if (fd == ses->client) {
-                        ssize_t recv_bytes = recv(fd, ses->read_buf.data() + ses->rd_bytes, ses->read_buf.size(), 0);
-
-                        if (recv_bytes == 0) { // got end of stream
-                            // write buffered data (if there is) to ses->client and close connection
-                            ses->client_eos = true;
-                            if (ses->rd_bytes == 0) {
-                                close_connection(epoll_fd, ses->client, ses->service, sessions, true);
-                            }
-                        }
-
-                        assert(recv_bytes >= 0);
-                        ses->rd_bytes += recv_bytes;
-
-                        if (recv_bytes) {
-                            epoll_event ev{};
-                            ev.events = EPOLLIN | EPOLLOUT;
-                            ev.data.fd = fd;
-
-                            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
-                        }
-                    } else if (fd == ses->service) {
-                        ssize_t recv_bytes = recv(fd, ses->write_buf.data() + ses->wr_bytes, ses->write_buf.size(), 0);
-                        if (recv_bytes == 0) {
-                            // write buffered data (if there is) to ses->service and close connection
-                            ses->service_eos = true;
-                            if (ses->wr_bytes) {
-                                close_connection(epoll_fd, ses->service, ses->client, sessions, true);
-                            }
-                        }
-                        assert(recv_bytes >= 0);
-                        ses->wr_bytes += recv_bytes;
-
-                        if (recv_bytes) {
-                            epoll_event ev{};
-                            ev.events = EPOLLIN | EPOLLOUT;
-                            ev.data.fd = fd;
-
-                            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
-                        }
-                    }
-                }
-
-                if (fd == ses->client && ses->rd_bytes > 0) {
-                    ssize_t send_bytes = send(ses->service, ses->read_buf.data() + ses->rd_offset, ses->rd_bytes, 0);
-                    if (send_bytes > 0) {
-                        ses->rd_bytes -= send_bytes;
-                        ses->rd_offset += send_bytes;
-
-                        if (ses->rd_bytes == 0) {
-                            ses->rd_bytes = 0;
-                            ses->rd_offset = 0;
-
-                            epoll_event ev{};
-                            ev.events = EPOLLIN;
-                            ev.data.fd = fd;
-
-                            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
-                        }
-
-                        if (ses->service_eos) {
-                            // if it is EOS send buffered data and then send FIN back, step 3 of 4 way tcp termination, close and delete sockets & session
-                            close_connection(epoll_fd, ses->service, ses->client, sessions, true);
-                        }
-                    } else if (send_bytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                        epoll_event ev{};
-                        ev.events = EPOLLIN | EPOLLOUT;
-                        ev.data.fd = fd;
-
-                        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
-                    } else {
-                        close_connection(epoll_fd, ses->client, ses->service, sessions);
-                        perror("Error writing to service from client");
-                    }
-                } else if (fd == ses->service && ses->wr_bytes > 0) {
-                    // FIXME: it resets connection, if not sent in 1 batch, why?
-                    ssize_t send_bytes = send(ses->client, ses->write_buf.data() + ses->wr_offset, ses->wr_bytes, 0);
-                    if (send_bytes > 0) {
-                        ses->wr_bytes -= send_bytes;
-                        ses->wr_offset += send_bytes;
-
-                        if (ses->wr_bytes == 0) {
-                            ses->wr_bytes = 0;
-                            ses->wr_offset = 0;
-
-                            epoll_event ev{};
-                            ev.events = EPOLLIN;
-                            ev.data.fd = fd;
-
-                            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
-                        }
-
-                        if (ses->client_eos) {
-                            // Send fin back
-                            close_connection(epoll_fd, ses->client, ses->service, sessions, true);
-                        }
-                    } else if (send_bytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                        epoll_event ev{};
-                        ev.events = EPOLLIN | EPOLLOUT;
-                        ev.data.fd = fd;
-
-                        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
-                    } else {
-                        close_connection(epoll_fd, ses->client, ses->service, sessions);
-                        perror("writing from service to client");
-                    }
-                }
-            }
-        }
-    }
-
+    boost::asio::io_context ctx;
+    Server serv{ctx, boost::asio::ip::make_address("127.0.0.1"), 8080};
+    serv.run();
+    ctx.run();
     return 0;
 }
