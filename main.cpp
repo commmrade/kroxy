@@ -103,6 +103,9 @@ struct Session : public std::enable_shared_from_this<Session> {
 
             if (wr_bytes > 0) {
                 client_sock.async_write_some(boost::asio::buffer(write_buf.data() + wr_offset, wr_bytes), std::bind(&Session::do_write_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+            } else if (wr_bytes == 0) {
+                // Sent everything
+                wr_offset = 0;
             }
             service_sock.async_read_some(boost::asio::buffer(write_buf), std::bind(&Session::do_read_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
         } else {
@@ -124,6 +127,9 @@ struct Session : public std::enable_shared_from_this<Session> {
 
             if (rd_bytes > 0) {
                 service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+            } else if (rd_bytes == 0) {
+                // Sent everything
+                rd_offset = 0;
             }
             client_sock.async_read_some(boost::asio::buffer(read_buf), std::bind(&Session::do_read_client, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
         } else {
