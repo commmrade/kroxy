@@ -1,6 +1,7 @@
 #include <array>
 #include <asm-generic/socket.h>
 #include <cassert>
+#include <cerrno>
 #include <cstdio>
 #include <memory>
 #include <print>
@@ -188,9 +189,14 @@ int main(int, char**){
                     continue;
                 }
 
-                if (event.events & EPOLLIN) {
+                if (event.events & EPOLLHUP) {
+                    std::println("hup");
+                } else if (event.events & EPOLLIN) {
                     if (fd == ses->client) {
-                        ssize_t recv_bytes = recv(ses->client, ses->read_buf.data() + ses->rd_bytes, ses->read_buf.size(), 0);
+                        ssize_t recv_bytes = recv(fd, ses->read_buf.data() + ses->rd_bytes, ses->read_buf.size(), 0);
+                        if (recv_bytes == 0) {
+                            std::println("FIN from client");
+                        }
                         assert(recv_bytes >= 0);
                         ses->rd_bytes += recv_bytes;
 
@@ -202,7 +208,10 @@ int main(int, char**){
                             epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
                         }
                     } else if (fd == ses->service) {
-                        ssize_t recv_bytes = recv(ses->service, ses->write_buf.data() + ses->wr_bytes, ses->write_buf.size(), 0);
+                        ssize_t recv_bytes = recv(fd, ses->write_buf.data() + ses->wr_bytes, ses->write_buf.size(), 0);
+                        if (recv_bytes == 0) {
+                            std::println("FIN from service");
+                        }
                         assert(recv_bytes >= 0);
                         ses->wr_bytes += recv_bytes;
 
@@ -233,14 +242,33 @@ int main(int, char**){
 
                             epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
                         }
-                    } else if (send_bytes == -1 && errno == EAGAIN) {
+                    } else if (send_bytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                         epoll_event ev{};
                         ev.events = EPOLLIN | EPOLLOUT;
                         ev.data.fd = fd;
 
                         epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
                     } else {
-                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
+                        // TODO: Write side of ses->service fails, should i shutdown only service write side of the socket?
+                        // Как будто бы закрывать все сразу при ошибке странно, как минимум потому что с другой стороны есть возможность частисно прикрыть сокет (например write закрыть, поэтому надо это как-то обработать)
+
+                        // Может быть такое:
+                        // 1. Клиент пишет на реверс (одновременно с этим например пишет сервис реверсу)
+                        // 2. Реверс перенаправлет на сервис и ошибка возникает (при этом данные реверса клиента еще не были направлены)
+                        // 3. Нужно обозначить, что реверс -> сервис умерло, завершить передачу реверс -> клиент и удалить все
+                        // Второй случай
+                        // 1. Сервис пишет реверсу (одновременно клиент пишет реверсу)
+                        // 2. Реверс пишет клиенту и соединение умирает, но в буфере есть данные клиента
+                        // 3. Нужно обозначить, что реверс -> клиент умерло, завершить передачу реверс -> сервис и удалить все
+                        //
+                        // Отправить остаточные данные логично, т.к м.б юзер нажал кнопку зарегаться, у него отрубило инет, но данные он уже отправил, т.е даже если ответ не получит то он зарегается и потом сможет войти
+                        //
+                        // TODO: EPOLLHUP изучить
+                        // TODO: обработать recv() если там == 0, то это half-closed FIN state, you can finish writing and stop
+
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->client, nullptr);
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->service, nullptr);
+
                         close(ses->client);
                         close(ses->service);
 
@@ -265,14 +293,16 @@ int main(int, char**){
 
                             epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
                         }
-                    } else if (send_bytes == -1 && errno == EAGAIN) {
+                    } else if (send_bytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                         epoll_event ev{};
                         ev.events = EPOLLIN | EPOLLOUT;
                         ev.data.fd = fd;
 
                         epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
                     } else {
-                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->client, nullptr);
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, ses->service, nullptr);
+
                         close(ses->client);
                         close(ses->service);
 
