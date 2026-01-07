@@ -48,7 +48,6 @@ struct Session : public std::enable_shared_from_this<Session> {
     void do_read_client(const boost::system::error_code& ec, std::size_t bytes_tf) {
         if (!ec) {
             rd_bytes += bytes_tf;
-            std::println("rd bytes: {}", bytes_tf);
             service_sock.async_write_some(boost::asio::buffer(read_buf.data() + rd_offset, rd_bytes), std::bind(&Session::do_write_service, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
         } else {
             if (ec == boost::asio::error::eof) {
