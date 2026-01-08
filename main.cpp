@@ -6,12 +6,11 @@
 #include <boost/asio/write.hpp>
 #include <boost/system/detail/error_code.hpp>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <print>
 #include <json/json.h>
-#include <stdexcept>
-#include <variant>
 #include "config.hpp"
 
 class Session {
@@ -52,6 +51,9 @@ private:
             if (ec == boost::asio::error::eof) {
                 should_shut_service = true;
                 auto write_data = upstream_buf_.data();
+                // TODO: is it a good way to write all buffered data left considering there may be none
+                // And there probably can't be any buffered data left at this point, because boost::asio::async_write writes everything, that is passed to it, even if its several async_write_some
+                // Maybe I can just issue a shutdown here
                 boost::asio::async_write(service_sock_, write_data, std::bind(&StreamSession::do_write_service, this->shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
             } else {
                 std::println("Client reading error: {}", ec.message());
@@ -65,7 +67,6 @@ private:
             if (should_shut_service) {
                 service_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
                 if (should_shut_service && should_shut_client) {
-                    std::println("Session closed");
                     close_ses();
                 }
                 return;
@@ -92,6 +93,9 @@ private:
             if (ec == boost::asio::error::eof) {
                 should_shut_client = true;
                 auto write_data = downstream_buf_.data();
+                // TODO: is it a good way to write all buffered data left considering there may be none
+                // And there probably can't be any buffered data left at this point, because boost::asio::async_write writes everything, that is passed to it, even if its several async_write_some
+                // Maybe I can just issue a shutdown here
                 boost::asio::async_write(client_sock_, write_data, std::bind(&StreamSession::do_write_client, this->shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
             } else {
                 std::println("Service reading error: {}", ec.message());
@@ -157,53 +161,30 @@ private:
         acceptor_.open(boost::asio::ip::tcp::v4());
 
         boost::asio::ip::tcp::resolver resolver{ctx};
-        auto eps = resolver.resolve("0.0.0.0", std::to_string(port));
-        boost::system::error_code ec;
-        for (const auto& ep : eps){
-            boost::system::error_code local_ec = acceptor_.bind(ep, ec);
-            if (local_ec) {
-                continue;
-            }
-            break;
-        }
-        if (ec) {
-            throw std::runtime_error("could not connect");
-        }
+        acceptor_.bind(boost::asio::ip::tcp::endpoint{boost::asio::ip::tcp::v4(), port});
 
         acceptor_.listen();
     }
 
     std::shared_ptr<Session> make_session() {
-        if (std::holds_alternative<StreamConfig>(cfg_.server_config)) {
+        if (cfg_.is_stream()) {
             return std::make_shared<StreamSession>(ctx_);
         } else {
             return std::make_shared<HttpSession>();
         }
     }
 
-    /// Extracts pass_to from config
-    std::string get_pass_to() const {
-        if (std::holds_alternative<StreamConfig>(cfg_.server_config)) {
-            auto serv_cfg = std::get<StreamConfig>(cfg_.server_config);
-            return serv_cfg.pass_to;
-        } else if (std::holds_alternative<HttpConfig>(cfg_.server_config)) {
-            auto serv_cfg = std::get<HttpConfig>(cfg_.server_config);
-            return serv_cfg.pass_to;
-        }
-        return "";
-    }
-
-    /// Choose host based on `pass_to` variable in the config
+    /// Choose host based on some fancy algorithm
     Host choose_host() {
-        auto pass_to_block = cfg_.servers.servers[get_pass_to()];
-        assert(!pass_to_block.empty());
-        auto host = *pass_to_block.begin();
+        const auto& serv_block = cfg_.get_servers_block();
+        assert(!serv_block.empty());
+        auto host = *serv_block.begin();
         return host;
     }
 
     void do_accept() {
         std::shared_ptr<Session> session = make_session();
-        acceptor_.async_accept(session->get_client(), [session, this](const boost::system::error_code& ec) {
+        acceptor_.async_accept(session->get_client(), [session, this] (const boost::system::error_code& ec) {
             if (!ec) {
                 auto host = choose_host();
                 auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(ctx_);
@@ -212,6 +193,8 @@ private:
                         boost::asio::async_connect(session->get_service(), eps, [session](const boost::system::error_code& ec, const boost::asio::ip::tcp::endpoint& endpoint) mutable {
                             if (!ec) {
                                 session->run();
+                            } else {
+                                std::println("Connecting to service failed: {}", ec.what());
                             }
                         });
                     } else {
@@ -226,13 +209,8 @@ private:
     }
 public:
     Server(boost::asio::io_context& ctx, Config conf) : ctx_(ctx), acceptor_(ctx), cfg_(std::move(conf)) {
-        if (std::holds_alternative<StreamConfig>(cfg_.server_config)) {
-            auto serv_cfg = std::get<StreamConfig>(cfg_.server_config);
-            setup_socket(ctx, serv_cfg.port);
-        } else if (std::holds_alternative<HttpConfig>(cfg_.server_config)) {
-            auto serv_cfg = std::get<HttpConfig>(cfg_.server_config);
-            setup_socket(ctx, serv_cfg.port);
-        }
+        auto port = cfg_.get_port();
+        setup_socket(ctx, port);
     }
 
     void run() {
@@ -247,14 +225,19 @@ private:
 
 
 int main() {
-    boost::asio::io_context ctx;
+    try {
+        boost::asio::io_context ctx;
 
-    std::filesystem::path p{"../stream.example.config.json"};
-    auto cfg = parse_config(p);
+        std::filesystem::path p{"../stream.example.config.json"};
+        auto cfg = parse_config(p);
 
-    Server server{ctx, std::move(cfg)};
-    server.run();
+        Server server{ctx, std::move(cfg)};
+        server.run();
+        ctx.run();
+    } catch (const std::exception& ex) {
+        std::println("Something went wrong: {}", ex.what());
+        return EXIT_FAILURE;
+    }
 
-    ctx.run();
     return EXIT_SUCCESS;
 }
