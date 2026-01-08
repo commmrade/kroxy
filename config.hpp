@@ -24,7 +24,7 @@ struct StreamConfig {
     std::size_t timeout_ms{};
     std::string pass_to{};
 };
-
+// Right now these two are similar, but what if other fields are added. That's why they are in a std::variant<...>
 struct HttpConfig {
     unsigned short port{};
     std::unordered_map<std::string, std::string> headers;
@@ -35,6 +35,34 @@ struct HttpConfig {
 struct Config {
     std::variant<StreamConfig, HttpConfig> server_config;
     Servers servers;
+
+    bool is_stream() const {
+        return std::holds_alternative<StreamConfig>(server_config);
+    }
+
+    std::string get_pass_to() const {
+        if (std::holds_alternative<StreamConfig>(server_config)) {
+            auto serv_cfg = std::get<StreamConfig>(server_config);
+            return serv_cfg.pass_to;
+        } else {
+            auto serv_cfg = std::get<HttpConfig>(server_config);
+            return serv_cfg.pass_to;
+        }
+    }
+
+    unsigned short get_port() const {
+        if (std::holds_alternative<StreamConfig>(server_config)) {
+            auto serv_cfg = std::get<StreamConfig>(server_config);
+            return serv_cfg.port;
+        } else {
+            auto serv_cfg = std::get<HttpConfig>(server_config);
+            return serv_cfg.port;
+        }
+    }
+
+    const std::vector<Host>& get_servers_block() {
+        return servers.servers[get_pass_to()];
+    }
 };
 
 
