@@ -1,6 +1,8 @@
 #include <boost/asio.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/placeholders.hpp>
 #include <boost/asio/streambuf.hpp>
+#include <boost/asio/write.hpp>
 #include <boost/system/detail/error_code.hpp>
 #include <cstdlib>
 #include <filesystem>
@@ -40,50 +42,52 @@ class StreamSession : public Session, public std::enable_shared_from_this<Stream
 private:
     // client to service
 
-    // void do_read_client() {
+    void do_read_client(const boost::system::error_code& ec, std::size_t bytes_tf) {
+        if (!ec) {
+            upstream_buf_.commit(bytes_tf);
+            auto write_data = upstream_buf_.data();
 
-    // }
-    // void do_write_service() {
-
-    // }
+            boost::asio::async_write(service_sock_, write_data, std::bind(&StreamSession::do_write_service, this->shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+        } else {
+            std::println("Client reading error: {}", ec.message());
+        }
+    }
+    void do_write_service(const boost::system::error_code& ec, std::size_t bytes_tf) {
+        if (!ec) {
+            upstream_buf_.consume(bytes_tf);
+        } else {
+            std::println("Service writing error: {}", ec.message());
+        }
+        do_upstream();
+    }
 
     void do_upstream() {
-        client_sock_.async_read_some(upstream_buf_.prepare(2048), [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
-            if (!ec) {
-                upstream_buf_.commit(bytes_tf);
-                auto write_data = upstream_buf_.data();
-                service_sock_.async_write_some(write_data, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
-                    if (!ec) {
-                        upstream_buf_.consume(bytes_tf);
-                    } else {
-                        std::println("Service writing error: {}", ec.message());
-                    }
-                    do_upstream();
-                });
-            } else {
-                std::println("Client reading error: {}", ec.message());
-            }
-        });
+        client_sock_.async_read_some(upstream_buf_.prepare(2048), std::bind(&StreamSession::do_read_client, this->shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
     }
 
     // service to client
+    void do_read_service(const boost::system::error_code& ec, std::size_t bytes_tf) {
+        if (!ec) {
+            downstream_buf_.commit(bytes_tf);
+            auto write_data = downstream_buf_.data();
+
+            boost::asio::async_write(client_sock_, write_data, std::bind(&StreamSession::do_write_client, this->shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+        } else {
+            std::println("Service reading error: {}", ec.message());
+        }
+    }
+
+    void do_write_client(const boost::system::error_code& ec, std::size_t bytes_tf) {
+        if (!ec) {
+            downstream_buf_.consume(bytes_tf);
+        } else {
+            std::println("Client writing error: {}", ec.message());
+        }
+        do_downstream();
+    }
+
     void do_downstream() {
-        service_sock_.async_read_some(downstream_buf_.prepare(2048), [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
-            if (!ec) {
-                downstream_buf_.commit(bytes_tf);
-                auto write_data = downstream_buf_.data();
-                client_sock_.async_write_some(write_data, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
-                    if (!ec) {
-                        downstream_buf_.consume(bytes_tf);
-                    } else {
-                        std::println("Client writing error: {}", ec.message());
-                    }
-                    do_downstream();
-                });
-            } else {
-                std::println("Service reading error: {}", ec.message());
-            }
-        });
+        service_sock_.async_read_some(downstream_buf_.prepare(2048), std::bind(&StreamSession::do_read_service, this->shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
     }
 
     boost::asio::ip::tcp::socket& get_client() override {
