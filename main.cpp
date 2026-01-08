@@ -1,4 +1,5 @@
 #include <boost/asio.hpp>
+#include <boost/asio/connect.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/placeholders.hpp>
 #include <boost/asio/streambuf.hpp>
@@ -105,7 +106,6 @@ private:
             if (should_shut_client) {
                 client_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
                 if (should_shut_client && should_shut_service) {
-                    std::println("Close session");
                     close_ses();
                 }
                 return;
@@ -181,36 +181,43 @@ private:
         }
     }
 
-    boost::asio::ip::tcp::socket make_service() {
-        boost::asio::ip::tcp::socket sock{ctx_};
-        // TODO: how to make all those socket operations async here?
-        auto& host = *cfg_.servers.servers.begin()->second.begin();
-        boost::asio::ip::tcp::resolver resolver{ctx_};
-        auto eps = resolver.resolve(host.host, std::to_string(host.port));
-
-        std::println("Host: {} {}", host.host, host.port);
-
-        boost::system::error_code ec;
-        for (const auto& ep : eps) {
-            auto local_ec = sock.connect(ep, ec);
-            if (local_ec) {
-                continue;
-            }
-            break;
+    /// Extracts pass_to from config
+    std::string get_pass_to() const {
+        if (std::holds_alternative<StreamConfig>(cfg_.server_config)) {
+            auto serv_cfg = std::get<StreamConfig>(cfg_.server_config);
+            return serv_cfg.pass_to;
+        } else if (std::holds_alternative<HttpConfig>(cfg_.server_config)) {
+            auto serv_cfg = std::get<HttpConfig>(cfg_.server_config);
+            return serv_cfg.pass_to;
         }
-        if (ec) {
-            throw std::runtime_error("Failed to connect");
-        }
-        return sock;
+        return "";
+    }
+
+    /// Choose host based on `pass_to` variable in the config
+    Host choose_host() {
+        auto pass_to_block = cfg_.servers.servers[get_pass_to()];
+        assert(!pass_to_block.empty());
+        auto host = *pass_to_block.begin();
+        return host;
     }
 
     void do_accept() {
         std::shared_ptr<Session> session = make_session();
         acceptor_.async_accept(session->get_client(), [session, this](const boost::system::error_code& ec) {
             if (!ec) {
-                // connect to service
-                session->get_service() = make_service();
-                session->run();
+                auto host = choose_host();
+                auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(ctx_);
+                resolver->async_resolve(host.host, std::to_string(host.port), [session, this, resolver] (const boost::system::error_code& ec, boost::asio::ip::tcp::resolver::results_type eps) {
+                    if (!ec) {
+                        boost::asio::async_connect(session->get_service(), eps, [session](const boost::system::error_code& ec, const boost::asio::ip::tcp::endpoint& endpoint) mutable {
+                            if (!ec) {
+                                session->run();
+                            }
+                        });
+                    } else {
+                        std::println("Resolving failed: {}", ec.message());
+                    }
+                });
             } else {
                 std::println("Accept failed: {}", ec.message());
             }
