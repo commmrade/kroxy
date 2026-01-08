@@ -46,17 +46,32 @@ private:
         if (!ec) {
             upstream_buf_.commit(bytes_tf);
             auto write_data = upstream_buf_.data();
-
             boost::asio::async_write(service_sock_, write_data, std::bind(&StreamSession::do_write_service, this->shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
         } else {
-            std::println("Client reading error: {}", ec.message());
+            if (ec == boost::asio::error::eof) {
+                should_shut_service = true;
+                auto write_data = upstream_buf_.data();
+                boost::asio::async_write(service_sock_, write_data, std::bind(&StreamSession::do_write_service, this->shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+            } else {
+                std::println("Client reading error: {}", ec.message());
+                close_ses();
+            }
         }
     }
     void do_write_service(const boost::system::error_code& ec, std::size_t bytes_tf) {
         if (!ec) {
             upstream_buf_.consume(bytes_tf);
+            if (should_shut_service) {
+                service_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+                if (should_shut_service && should_shut_client) {
+                    std::println("Session closed");
+                    close_ses();
+                }
+                return;
+            }
         } else {
             std::println("Service writing error: {}", ec.message());
+            close_ses();
         }
         do_upstream();
     }
@@ -73,21 +88,42 @@ private:
 
             boost::asio::async_write(client_sock_, write_data, std::bind(&StreamSession::do_write_client, this->shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
         } else {
-            std::println("Service reading error: {}", ec.message());
+            if (ec == boost::asio::error::eof) {
+                should_shut_client = true;
+                auto write_data = downstream_buf_.data();
+                boost::asio::async_write(client_sock_, write_data, std::bind(&StreamSession::do_write_client, this->shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+            } else {
+                std::println("Service reading error: {}", ec.message());
+                close_ses();
+            }
         }
     }
 
     void do_write_client(const boost::system::error_code& ec, std::size_t bytes_tf) {
         if (!ec) {
             downstream_buf_.consume(bytes_tf);
+            if (should_shut_client) {
+                client_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+                if (should_shut_client && should_shut_service) {
+                    std::println("Close session");
+                    close_ses();
+                }
+                return;
+            }
         } else {
             std::println("Client writing error: {}", ec.message());
+            close_ses();
         }
         do_downstream();
     }
 
     void do_downstream() {
         service_sock_.async_read_some(downstream_buf_.prepare(2048), std::bind(&StreamSession::do_read_service, this->shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+    }
+
+    void close_ses() {
+        client_sock_.close();
+        service_sock_.close();
     }
 
     boost::asio::ip::tcp::socket& get_client() override {
@@ -107,6 +143,9 @@ private:
     friend class Server;
     boost::asio::ip::tcp::socket client_sock_;
     boost::asio::ip::tcp::socket service_sock_;
+
+    bool should_shut_client{false};
+    bool should_shut_service{false};
 
     boost::asio::streambuf upstream_buf_;
     boost::asio::streambuf downstream_buf_;
