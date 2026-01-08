@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "top": [{ "host": "google.com", "port": 80 }],
+    "fuck_it": [{ "host": "odnoklassniki.ru", "port": 80 }]
+  },
+
+  "stream": {
+    "port": 8080,
+    "timeout_ms": 500,
+    "pass_to": "top"
+  }
+}
