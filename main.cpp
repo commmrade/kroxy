@@ -1,26 +1,112 @@
 #include <boost/asio.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/streambuf.hpp>
 #include <boost/system/detail/error_code.hpp>
 #include <cstdlib>
 #include <filesystem>
+#include <memory>
 #include <print>
 #include <json/json.h>
 #include <stdexcept>
 #include <variant>
 #include "config.hpp"
 
-class StreamSession {
+class Session {
 public:
+    virtual ~Session() = default;
+    virtual void run() = 0;
 
+    virtual boost::asio::ip::tcp::socket& get_client() = 0;
+    virtual boost::asio::ip::tcp::socket& get_service() = 0;
+};
+
+class HttpSession : public Session, public std::enable_shared_from_this<HttpSession> {
+public:
+    void run() override {}
+
+    HttpSession() = default;
+    ~HttpSession() override = default;
+
+    boost::asio::ip::tcp::socket& get_client() override {
+        throw -1;
+    }
+    boost::asio::ip::tcp::socket& get_service() override {
+        throw -1;
+    }
 private:
 };
 
-class TcpSession {
-public:
-
+class StreamSession : public Session, public std::enable_shared_from_this<StreamSession> {
 private:
-};
+    // client to service
 
+    // void do_read_client() {
+
+    // }
+    // void do_write_service() {
+
+    // }
+
+    void do_upstream() {
+        client_sock_.async_read_some(upstream_buf_.prepare(2048), [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+            if (!ec) {
+                upstream_buf_.commit(bytes_tf);
+                auto write_data = upstream_buf_.data();
+                service_sock_.async_write_some(write_data, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                    if (!ec) {
+                        upstream_buf_.consume(bytes_tf);
+                    } else {
+                        std::println("Service writing error: {}", ec.message());
+                    }
+                    do_upstream();
+                });
+            } else {
+                std::println("Client reading error: {}", ec.message());
+            }
+        });
+    }
+
+    // service to client
+    void do_downstream() {
+        service_sock_.async_read_some(downstream_buf_.prepare(2048), [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+            if (!ec) {
+                downstream_buf_.commit(bytes_tf);
+                auto write_data = downstream_buf_.data();
+                client_sock_.async_write_some(write_data, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                    if (!ec) {
+                        downstream_buf_.consume(bytes_tf);
+                    } else {
+                        std::println("Client writing error: {}", ec.message());
+                    }
+                    do_downstream();
+                });
+            } else {
+                std::println("Service reading error: {}", ec.message());
+            }
+        });
+    }
+
+    boost::asio::ip::tcp::socket& get_client() override {
+        return client_sock_;
+    }
+    boost::asio::ip::tcp::socket& get_service() override {
+        return service_sock_;
+    }
+public:
+    StreamSession(boost::asio::io_context& ctx) : client_sock_(ctx), service_sock_(ctx) {}
+    ~StreamSession() override = default;
+    void run() override {
+        do_upstream();
+        do_downstream();
+    }
+private:
+    friend class Server;
+    boost::asio::ip::tcp::socket client_sock_;
+    boost::asio::ip::tcp::socket service_sock_;
+
+    boost::asio::streambuf upstream_buf_;
+    boost::asio::streambuf downstream_buf_;
+};
 
 class Server {
 private:
@@ -44,25 +130,68 @@ private:
         acceptor_.listen();
     }
 
-    void do_accept() {
+    std::shared_ptr<Session> make_session() {
+        if (std::holds_alternative<StreamConfig>(cfg_.server_config)) {
+            return std::make_shared<StreamSession>(ctx_);
+        } else {
+            return std::make_shared<HttpSession>();
+        }
+    }
 
+    boost::asio::ip::tcp::socket make_service() {
+        boost::asio::ip::tcp::socket sock{ctx_};
+        // TODO: how to make all those socket operations async here?
+        auto& host = *cfg_.servers.servers.begin()->second.begin();
+        boost::asio::ip::tcp::resolver resolver{ctx_};
+        auto eps = resolver.resolve(host.host, std::to_string(host.port));
+
+        std::println("Host: {} {}", host.host, host.port);
+
+        boost::system::error_code ec;
+        for (const auto& ep : eps) {
+            auto local_ec = sock.connect(ep, ec);
+            if (local_ec) {
+                continue;
+            }
+            break;
+        }
+        if (ec) {
+            throw std::runtime_error("Failed to connect");
+        }
+        return sock;
+    }
+
+    void do_accept() {
+        std::shared_ptr<Session> session = make_session();
+        acceptor_.async_accept(session->get_client(), [session, this](const boost::system::error_code& ec) {
+            if (!ec) {
+                // connect to service
+                session->get_service() = make_service();
+                session->run();
+            } else {
+                std::println("Accept failed: {}", ec.message());
+            }
+            do_accept();
+        });
     }
 public:
-    Server(boost::asio::io_context& ctx, Config cfg) : acceptor_(ctx) {
-        if (std::holds_alternative<StreamConfig>(cfg.server_config)) {
-            auto serv_cfg = std::get<StreamConfig>(cfg.server_config);
+    Server(boost::asio::io_context& ctx, Config conf) : ctx_(ctx), acceptor_(ctx), cfg_(std::move(conf)) {
+        if (std::holds_alternative<StreamConfig>(cfg_.server_config)) {
+            auto serv_cfg = std::get<StreamConfig>(cfg_.server_config);
             setup_socket(ctx, serv_cfg.port);
-        } else if (std::holds_alternative<HttpConfig>(cfg.server_config)) {
-            auto serv_cfg = std::get<HttpConfig>(cfg.server_config);
+        } else if (std::holds_alternative<HttpConfig>(cfg_.server_config)) {
+            auto serv_cfg = std::get<HttpConfig>(cfg_.server_config);
             setup_socket(ctx, serv_cfg.port);
         }
     }
 
     void run() {
-
+        do_accept();
     }
 private:
+    boost::asio::io_context& ctx_;
     boost::asio::ip::tcp::acceptor acceptor_;
+    Config cfg_;
 };
 
 
@@ -73,7 +202,8 @@ int main() {
     std::filesystem::path p{"../stream.example.config.json"};
     auto cfg = parse_config(p);
 
-
+    Server server{ctx, std::move(cfg)};
+    server.run();
 
     ctx.run();
     return EXIT_SUCCESS;
