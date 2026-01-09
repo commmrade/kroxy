@@ -19,6 +19,24 @@ target_include_directories(kroxy PRIVATE
     ${JSONCPP_INCLUDE_DIRS}   # заголовки json-cpp
 )
 
+target_compile_options(kroxy PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+        -Wshadow
+        -Wnon-virtual-dtor
+        -Wold-style-cast
+        -Wcast-align
+        -Woverloaded-virtual
+        -Wnull-dereference
+        -Wdouble-promotion
+        -Wformat=2
+    >
+)
+
 target_link_libraries(kroxy PRIVATE
     Boost::boost
     ${LIBURING_LIBRARIES}

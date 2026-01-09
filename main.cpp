@@ -69,11 +69,11 @@ private:
                 }
                 return;
             }
+            do_upstream();
         } else {
             std::println("Service writing error: {}", ec.message());
             close_ses();
         }
-        do_upstream();
     }
 
     void do_upstream() {
@@ -114,11 +114,11 @@ private:
                 }
                 return;
             }
+            do_downstream();
         } else {
             std::println("Client writing error: {}", ec.message());
             close_ses();
         }
-        do_downstream();
     }
 
     void do_downstream() {
@@ -167,15 +167,11 @@ private:
 
     // client to service
     void do_upstream() {
-        std::println("us:state: {}", (int)upstream_state_);
         switch (upstream_state_) {
             case State::HEADERS: {
                 request_p_.emplace();
                 boost::beast::http::async_read_header(client_sock_, upstream_buf_, *request_p_, [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
                     if (!ec) {
-                        std::println("Read {} bytes from client, buf bytes: {}", bytes_tf, upstream_buf_.size());
-                        std::println("UPSTREAM BUF: {}", std::string_view{(char*)upstream_buf_.data().data(), upstream_buf_.data().size()});
-
                         auto& msg = request_p_.value().get();
                         process_headers(msg);
                         request_s_.emplace(msg);
@@ -190,7 +186,6 @@ private:
                                         if (!ec) {
                                             upstream_buf_.consume(bytes_tf); // remove bytes we alrady sent
                                             us_body_bytes += bytes_tf;
-                                            // check if message has content length if does and we sent less than it is, continue reading and writing
                                         } else {
                                             std::println("us: writing upstream buf remains failed: {}", ec.message());
                                             close_ses();
@@ -214,10 +209,8 @@ private:
                 break;
             }
             case State::BODY: {
-                // assert(request_p_.value().get().has_content_length());
                 client_sock_.async_read_some(upstream_buf_.prepare(1024), [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
                     if (!ec) {
-                        upstream_buf_.commit(bytes_tf);
                         auto data = upstream_buf_.data();
                         boost::asio::async_write(service_sock_, data, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
                             if (!ec) {
@@ -258,15 +251,11 @@ private:
 
     // service to client
     void do_downstream() {
-        std::println("ds:state: {}", (int)downstream_state_);
         switch (downstream_state_) {
             case State::HEADERS: {
                 response_p_.emplace();
                 boost::beast::http::async_read_header(service_sock_, downstream_buf_, *response_p_, [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
                     if (!ec) {
-                        std::println("Read {} bytes froms ervice, buf bytes: {}", bytes_tf, downstream_buf_.size());
-                        std::println("DOWNSTEAM BUF: {}", std::string_view{(char*)downstream_buf_.data().data(), downstream_buf_.data().size()});
-
                         auto& msg = response_p_.value().get();
                         response_s_.emplace(msg);
                         boost::beast::http::async_write_header(client_sock_, *response_s_, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
@@ -277,7 +266,6 @@ private:
                                     downstream_state_ = State::BODY;
                                     auto data = downstream_buf_.data();
                                     boost::asio::async_write(client_sock_, data, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
-                                        std::println("Wrote body leftovers");
                                         if (!ec) {
                                             downstream_buf_.consume(bytes_tf); // remove bytes we alrady sent
                                             ds_body_bytes += bytes_tf;
