@@ -1,7 +1,8 @@
 {
   "servers": {
     "top": [{ "host": "google.com", "port": 80 }],
-    "fuck_it": [{ "host": "odnoklassniki.ru", "port": 80 }]
+    "fuck_it": [{ "host": "odnoklassniki.ru", "port": 80 }],
+    "python": [{ "host":  "127.0.0.1", "port":  9999}]
   },
 
   "http": {
