@@ -163,54 +163,85 @@ private:
 
     // client to service
     void do_upstream() {
+        std::println("us:state: {}", (int)upstream_state_);
         switch (upstream_state_) {
             case State::HEADERS: {
-                // TODO: im not sure any of this is correct, read beast docs to make sure
-                // I think I should use different http::message, parser, serializer for headers and body
-                boost::beast::http::async_read_header(client_sock_, upstream_buf_, http_request_p_, [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                boost::beast::http::async_read_header(client_sock_, upstream_buf_, request_p_, [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
                     if (!ec) {
-                        if (!http_request_p_.is_header_done()) {
-                            // weird, idk what to do yet
-                            throw std::runtime_error("Could not read headers");
-                        }
-                        process_headers(http_request_);
+                        std::println("us: Read {} header bytes, buf has {} bytes total", bytes_tf, upstream_buf_.size());
+                        upstream_buf_.commit(bytes_tf);
+                        upstream_buf_.consume(bytes_tf); // get rid of header bytes
 
-                        // now write headers to service, get to reading streamed body
-                        boost::beast::http::async_write_header(service_sock_, http_request_s_, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
-                           if (!ec) {
-                               std::println("Header successfulyl transfered");
-                               upstream_state_ = State::BODY;
-                           } else {
-                               std::println("Failed to write headers: {}", ec.what());
-                           }
-                           do_upstream();
+                        auto& msg = request_p_.get();
+                        for (const auto& field : msg) {
+                            std::println("Hdr: {}: {}", field.name_string(), field.value());
+                        }
+                        std::println("Buf contains: {}", std::string_view{(char*)upstream_buf_.data().data(), upstream_buf_.data().size()});
+
+                        request_s_.emplace(request_p_.get());
+                        boost::beast::http::async_write_header(service_sock_, *request_s_, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                            if (!ec) {
+                                std::println("us: Wrote {} bytes", bytes_tf);
+
+                                if (upstream_buf_.size()) {
+                                    // write to service
+                                    upstream_state_ = State::BODY;
+                                    auto data = upstream_buf_.data();
+                                    boost::asio::async_write(service_sock_, data, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                                        if (!ec) {
+                                            upstream_buf_.consume(bytes_tf); // remove bytes we alrady sent
+                                            us_body_bytes += bytes_tf;
+                                            // check if message has content length if does and we sent less than it is, continue reading and writing
+                                        } else {
+                                            std::println("us: writing upstream buf remains failed: {}", ec.message());
+                                        }
+                                    });
+                                } else if (request_p_.get().has_content_length()) {
+                                    upstream_state_ = State::BODY;
+                                }
+                            } else {
+                                std::println("Upstream write header error: {}", ec.message());
+                            }
+                            do_upstream(); // TODO: Should this only be here
                         });
                     } else {
-                        std::println("Reading header failed: {}", ec.message());
+                        std::println("Upstream read header error: {}", ec.message());
                     }
                 });
+
                 break;
             }
             case State::BODY: {
-                boost::beast::http::async_read_some(client_sock_, upstream_buf_, http_request_p_, [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                assert(request_p_.get().has_content_length()); // should have, since state
+                client_sock_.async_read_some(upstream_buf_.prepare(1024), [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
                     if (!ec) {
-                        boost::beast::http::async_write(service_sock_, http_request_s_, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                        upstream_buf_.commit(bytes_tf);
+                        auto data = upstream_buf_.data();
+                        boost::asio::async_write(service_sock_, data, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
                             if (!ec) {
-                                std::println("Body transferred");
-                                // TODO: make sure whole body is written (use content length, then switch state back to HEADERS in case of keep-alive)
+                                upstream_buf_.consume(bytes_tf); // asio::async_write guarantees that it has written all the bytes, so at this point it is empty;
+                                us_body_bytes += bytes_tf;
+                                assert(upstream_buf_.size() == 0);
+
+                                auto content_length = std::stoi(request_p_.get().at(boost::beast::http::field::content_length));
+                                if (us_body_bytes >= content_length) {
+                                    // done sending body
+                                    upstream_state_ = State::HEADERS;
+                                    // if it is not keep-alive it will fail at reading headers
+                                }
                             } else {
-                                std::println("Body write failed: {}", ec.message());
+                                std::println("us: body write failed: {}", ec.message());
                             }
                             do_upstream();
                         });
                     } else {
-                        std::println("Could not read body: {}", ec.message());
+                        std::println("us: reading client body failed: {}", ec.message());
                     }
                 });
                 break;
             }
             default: {
-                throw std::runtime_error("Not implemented");
+                // throw std::runtime_error("Not implemented");
                 break;
             }
         }
@@ -218,145 +249,102 @@ private:
 
     // service to client
     void do_downstream() {
+        std::println("ds:state: {}", (int)downstream_state_);
         switch (downstream_state_) {
             case State::HEADERS: {
-                // TODO: im not sure any of this is correct, read beast docs to make sure
-                // I think I should use different http::message, parser, serializer for headers and body
-                boost::beast::http::async_read_header(service_sock_, downstream_buf_, http_response_p_, [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                boost::beast::http::async_read_header(service_sock_, downstream_buf_, response_p_, [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
                     if (!ec) {
-                        if (!http_response_p_.is_header_done()) {
-                            // weird, idk what to do yet
-                            throw std::runtime_error("Could not read headers");
-                        }
+                        std::println("us: Read {} header bytes, buf has {} bytes total", bytes_tf, downstream_buf_.size());
+                        downstream_buf_.commit(bytes_tf);
+                        downstream_buf_.consume(bytes_tf); // get rid of header bytes
 
-                        // now write headers to service, get to reading streamed body
-                        boost::beast::http::async_write_header(client_sock_, http_response_s_, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
-                           if (!ec) {
-                               std::println("Header successfulyl transfered");
-                               downstream_state_ = State::BODY;
-                           } else {
-                               std::println("Failed to write headers: {}", ec.what());
-                           }
-                           do_downstream();
+                        auto& msg = response_p_.get();
+                        for (const auto& field : msg) {
+                            std::println("Hdr: {}: {}", field.name_string(), field.value());
+                        }
+                        std::println("Buf contains: {}", std::string_view{(char*)downstream_buf_.data().data(), downstream_buf_.data().size()});
+
+                        response_s_.emplace(response_p_.get());
+                        boost::beast::http::async_write_header(client_sock_, *response_s_, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                            if (!ec) {
+                                std::println("us: Wrote {} bytes", bytes_tf);
+
+                                if (downstream_buf_.size()) {
+                                    // write to service
+                                    downstream_state_ = State::BODY;
+                                    auto data = downstream_buf_.data();
+                                    boost::asio::async_write(client_sock_, data, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                                        if (!ec) {
+                                            downstream_buf_.consume(bytes_tf); // remove bytes we alrady sent
+                                            ds_body_bytes += bytes_tf;
+                                            // check if message has content length if does and we sent less than it is, continue reading and writing
+                                        } else {
+                                            std::println("us: writing upstream buf remains failed: {}", ec.message());
+                                        }
+                                    });
+                                } else if (response_p_.get().has_content_length()) {
+                                    downstream_state_ = State::BODY;
+                                }
+                            } else {
+                                std::println("Upstream write header error: {}", ec.message());
+                            }
+                            do_downstream(); // TODO: Should this only be here
                         });
                     } else {
-                        std::println("Reading header failed: {}", ec.message());
+                        std::println("Upstream read header error: {}", ec.message());
                     }
                 });
+
                 break;
             }
             case State::BODY: {
-                boost::beast::http::async_read_some(service_sock_, downstream_buf_, http_response_p_, [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                assert(response_p_.get().has_content_length()); // should have, since state
+                service_sock_.async_read_some(downstream_buf_.prepare(1024), [self = shared_from_this(), this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
                     if (!ec) {
-                        boost::beast::http::async_write(client_sock_, http_response_s_, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
+                        downstream_buf_.commit(bytes_tf);
+                        auto data = downstream_buf_.data();
+                        boost::asio::async_write(client_sock_, data, [self, this] (const boost::system::error_code& ec, std::size_t bytes_tf) {
                             if (!ec) {
-                                std::println("Body transferred");
-                                // TODO: make sure whole body is written (use content length, then switch state back to HEADERS in case of keep-alive)
+                                downstream_buf_.consume(bytes_tf); // asio::async_write guarantees that it has written all the bytes, so at this point it is empty;
+                                ds_body_bytes += bytes_tf;
+                                assert(downstream_buf_.size() == 0);
+
+                                auto content_length = std::stoi(response_p_.get().at(boost::beast::http::field::content_length));
+                                if (ds_body_bytes >= content_length) {
+                                    // done sending body
+                                    downstream_state_ = State::HEADERS;
+                                    // if it is not keep-alive it will fail at reading headers
+                                }
                             } else {
-                                std::println("Body write failed: {}", ec.message());
+                                std::println("us: body write failed: {}", ec.message());
                             }
                             do_downstream();
                         });
                     } else {
-                        std::println("Could not read body: {}", ec.message());
+                        std::println("us: reading client body failed: {}", ec.message());
                     }
                 });
                 break;
             }
             default: {
-                throw std::runtime_error("Not implemented");
+                // throw std::runtime_error("Not implemented");
                 break;
             }
         }
+    }
+
+    void close_ses() {
+        client_sock_.close();
+        service_sock_.close();
     }
 public:
 
     HttpSession(boost::asio::io_context& ctx, HttpConfig& cfg) : client_sock_(ctx), service_sock_(ctx), cfg_(cfg) {}
     ~HttpSession() override = default;
 
-    void do_sync() {
-        while (true) {
-            boost::beast::flat_buffer up_buf;
-            boost::beast::http::request_parser<boost::beast::http::dynamic_body> up_msg_p{};
-
-            // read header
-            auto rd_bytes = boost::beast::http::read_header(client_sock_, up_buf, up_msg_p);
-            up_buf.commit(rd_bytes);
-            up_buf.consume(rd_bytes); // get rid of headers that it has read
-            std::println("Read {} header bytes. Bytes in up_buf: {}", rd_bytes, up_buf.size());
-
-            std::println("headers:");
-            const auto& msg = up_msg_p.get();
-            for (const auto& header : msg) {
-                std::println("Header: {} {}", header.name_string(), header.value());
-            }
-            std::cout << "Buf: " << std::string_view{(char*)up_buf.data().data(), up_buf.data().size()} << std::endl;
-
-            // // pass header to service
-            boost::beast::http::request_serializer<boost::beast::http::dynamic_body> up_ser{msg};
-            auto wr_bytes = boost::beast::http::write_header(service_sock_, up_ser);
-            std::println("Written header bytes: {}", wr_bytes);
-
-            // // pass body left overs into service
-            if (up_buf.size()) {
-                auto data = up_buf.data();
-                auto wr_bytes = boost::asio::write(service_sock_, data);
-                up_buf.consume(wr_bytes);
-                std::println("Wrote {} bytes of up_buf", wr_bytes);
-            }
-
-            // read body
-            // auto rd_body_bytes = boost::asio::read(client_sock_, up_buf);
-            // up_buf.commit(rd_body_bytes);
-            // std::println("Read {} body bytes", rd_body_bytes);
-
-            // auto data = up_buf.data();
-            // auto wr_body_bytes = boost::asio::write(service_sock_, data);
-            // std::println("Wrote {} body bytes", wr_body_bytes);
-
-            // read from service and write to client
-            {
-                boost::beast::flat_buffer down_buf;
-                boost::beast::http::response_parser<boost::beast::http::dynamic_body> down_msg_p{};
-                auto rd_header_bytes = boost::beast::http::read_header(service_sock_, down_buf, down_msg_p);
-                std::println("FULL BUF BYTES: {}", down_buf.size());
-                down_buf.commit(rd_header_bytes);
-                down_buf.consume(rd_header_bytes); // get rid of headers, leave only the body
-                std::println("Read {} header bytes from service, buf is {} bytes", rd_header_bytes, down_buf.size());
-                std::println("Buf contains: {}", std::string_view{(char*)down_buf.data().data(), down_buf.data().size()});
-
-
-                auto& msg = down_msg_p.get();
-                boost::beast::http::response_serializer<boost::beast::http::dynamic_body> down_ser{msg};
-                auto wr_header_bytes = boost::beast::http::write_header(client_sock_, down_ser);
-                std::println("Wrote {} header bytes", wr_header_bytes);
-
-                if (down_buf.size()) {
-                    auto data = down_buf.data();
-                    auto wr_bytes = boost::asio::write(client_sock_, data);
-                    down_buf.consume(wr_bytes);
-                    std::println("Wrote {} body bytes", wr_bytes);
-                }
-
-                auto rd_body_bytes = boost::asio::read(service_sock_, down_buf);
-                std::println("Read {} body bytes from service", rd_body_bytes);
-                // down_buf.commit(rd_body_bytes);
-
-                // auto data = down_buf.data();
-                // auto wr_body_bytes = boost::asio::write(client_sock_, data);
-                // down_buf.consume(wr_body_bytes);
-                // std::println("Write {} body bytes from service", wr_body_bytes);
-            }
-
-            // done i guess
-        }
-    }
-
     void run() override {
-        do_sync();
-
-        // do_upstream();
-        // do_downstream();
+        do_upstream();
+        do_downstream();
     }
 
     boost::asio::ip::tcp::socket& get_client() override {
@@ -380,16 +368,16 @@ private:
     bool should_shut_service{false};
 
     boost::beast::flat_buffer upstream_buf_;
-    boost::beast::http::request<boost::beast::http::dynamic_body> http_request_{};
-    boost::beast::http::request_parser<boost::beast::http::dynamic_body> http_request_p_{http_request_};
-    boost::beast::http::request_serializer<boost::beast::http::dynamic_body> http_request_s_{http_request_};
-    State upstream_state_;
+    boost::beast::http::request_parser<boost::beast::http::dynamic_body> request_p_{};
+    std::optional<boost::beast::http::request_serializer<boost::beast::http::dynamic_body>> request_s_{};
+    State upstream_state_{};
+    std::size_t us_body_bytes{0}; // TODO: Wrap it in State struct with enum?
 
     boost::beast::flat_buffer downstream_buf_;
-    boost::beast::http::response<boost::beast::http::dynamic_body> http_response_{};
-    boost::beast::http::response_parser<boost::beast::http::dynamic_body> http_response_p_{http_response_};
-    boost::beast::http::response_serializer<boost::beast::http::dynamic_body> http_response_s_{http_response_};
-    State downstream_state_;
+    boost::beast::http::response_parser<boost::beast::http::dynamic_body> response_p_{};
+    std::optional<boost::beast::http::response_serializer<boost::beast::http::dynamic_body>> response_s_{};
+    State downstream_state_{};
+    std::size_t ds_body_bytes{0};
 };
 
 
