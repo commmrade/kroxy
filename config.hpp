@@ -1,7 +1,7 @@
+#pragma once
 #include <cassert>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <json/config.h>
 #include <json/json.h>
 #include <json/reader.h>
@@ -11,26 +11,31 @@
 #include <vector>
 
 struct Host {
-    std::string host{};
+    std::string host;
     unsigned short port{};
 };
 
 struct Servers {
-    std::unordered_map<std::string, std::vector<Host>> servers;
+    std::unordered_map<std::string, std::vector<Host> > servers;
 };
 
 struct StreamConfig {
     unsigned short port{};
     std::size_t timeout_ms{};
-    std::string pass_to{};
+    std::string pass_to;
 };
+
 // Right now these two are similar, but what if other fields are added. That's why they are in a std::variant<...>
 struct HttpConfig {
     unsigned short port{};
     std::unordered_map<std::string, std::string> headers;
     std::size_t timeout_ms{};
-    std::string pass_to{};
+    std::string pass_to;
 };
+
+
+static constexpr unsigned short DEFAULT_PORT = 8080;
+static constexpr std::size_t DEFAULT_TIMEOUT = 1000;
 
 struct Config {
     std::variant<StreamConfig, HttpConfig> server_config;
@@ -60,20 +65,20 @@ struct Config {
         }
     }
 
-    const std::vector<Host>& get_servers_block() {
+    const std::vector<Host> &get_servers_block() {
         return servers.servers[get_pass_to()];
     }
 };
 
 
-inline Config parse_config(const std::filesystem::path& path) {
+inline Config parse_config(const std::filesystem::path &path) {
     std::ifstream file{path};
     if (!file.is_open()) {
         throw std::runtime_error("File is not opened");
     }
 
     Json::Value json;
-    Json::CharReaderBuilder builder;
+    Json::CharReaderBuilder const builder;
     JSONCPP_STRING errs;
     if (!Json::parseFromStream(builder, file, &json, &errs)) {
         throw std::runtime_error("Was unable to parse JSON config");
@@ -83,14 +88,14 @@ inline Config parse_config(const std::filesystem::path& path) {
     Config result;
     if (json.isMember("stream")) {
         // parse stream settings
-        auto stream_obj = json["stream"];
+        const auto &stream_obj = json["stream"];
         if (stream_obj.empty()) {
             throw std::runtime_error("Stream is empty");
         }
 
         StreamConfig cfg;
-        cfg.port = stream_obj.get("port", 8080).asInt();
-        cfg.timeout_ms = stream_obj.get("timeout_ms", 1000).asInt();
+        cfg.port = static_cast<unsigned short>(stream_obj.get("port", DEFAULT_PORT).asInt());
+        cfg.timeout_ms = stream_obj.get("timeout_ms", DEFAULT_TIMEOUT).asUInt();
         cfg.pass_to = stream_obj.get("pass_to", "").asString();
         if (cfg.pass_to.empty()) {
             throw std::runtime_error("Pass_to is not defined");
@@ -98,23 +103,23 @@ inline Config parse_config(const std::filesystem::path& path) {
         result.server_config = cfg;
     } else if (json.isMember("http")) {
         // parse http settings
-        auto http_obj = json["http"];
+        const auto &http_obj = json["http"];
         if (http_obj.empty()) {
             throw std::runtime_error("Http is empty");
         }
 
         HttpConfig cfg;
-        cfg.port = http_obj.get("port", 8080).asInt();
-        cfg.timeout_ms = http_obj.get("timeout_ms", 1000).asInt();
+        cfg.port = static_cast<unsigned short>(http_obj.get("port", DEFAULT_PORT).asInt());
+        cfg.timeout_ms = http_obj.get("timeout_ms", DEFAULT_TIMEOUT).asUInt();
         cfg.pass_to = http_obj.get("pass_to", "").asString();
         if (cfg.pass_to.empty()) {
             throw std::runtime_error("Pass_to is not defined");
         }
 
-        auto headers_obj = http_obj["headers"];
+        const auto headers_obj = http_obj["headers"];
         if (headers_obj.isObject()) {
-            for (const auto& key : headers_obj.getMemberNames()) {
-                const Json::Value& value = headers_obj[key];
+            for (const auto &key: headers_obj.getMemberNames()) {
+                const Json::Value &value = headers_obj[key];
                 cfg.headers[key] = value.asString();
             }
         }
@@ -125,9 +130,9 @@ inline Config parse_config(const std::filesystem::path& path) {
 
     auto servers_obj = json["servers"];
     if (servers_obj.isObject() && !servers_obj.empty()) {
-        for (const auto& serv_block : servers_obj.getMemberNames()) {
-            const auto& block = servers_obj[serv_block];
-            for (const auto& host : block) {
+        for (const auto &serv_block: servers_obj.getMemberNames()) {
+            const auto &block = servers_obj[serv_block];
+            for (const auto &host: block) {
                 auto host_str = host["host"].asString();
                 auto port = host["port"].asInt();
 
