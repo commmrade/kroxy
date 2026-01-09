@@ -11,6 +11,6 @@
       "X-Real-IP": "$addr"
     },
     "timeout_ms": 5000,
-    "pass_to": "smth"
+    "pass_to": "top"
   }
 }
