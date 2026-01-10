@@ -281,16 +281,11 @@ private:
     }
 
     void do_write_service_body(const boost::system::error_code &errc, std::size_t bytes_tf) {
-        boost::system::error_code ec = errc;
-        if (boost::beast::http::error::need_buffer == ec) {
-            ec = {};
-        }
-        if (!ec) {
+        if (errc == boost::beast::http::error::need_buffer || !errc) {
             std::println("Write service body bytes {}", bytes_tf);
             // request_p_.value().get().body().consume(bytes_tf); // Get rid of body bytes that we already sent
             if (request_p_->is_done() && request_s_->is_done()) { // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on parser or serializer)
                 upstream_state_ = State::HEADERS;
-
                 request_p_->get().body().size = 0;
                 request_p_->get().body().data = nullptr;
             } else {
@@ -308,6 +303,7 @@ private:
         switch (upstream_state_) {
             case State::HEADERS: {
                 request_p_.emplace();
+                upstream_buf_.clear();
                 boost::beast::http::async_read_header(client_sock_, upstream_buf_, *request_p_,
                                                       [self = shared_from_this(), this](
                                                   const boost::system::error_code &errc,
@@ -361,7 +357,6 @@ private:
 
                 std::println("Bytes in downstream_buf: {}", downstream_buf_.size());
             }
-
             do_downstream();
         } else {
             std::println(
@@ -383,17 +378,6 @@ private:
             boost::beast::http::async_write(client_sock_, *response_s_, [self = shared_from_this(), this](const boost::system::error_code &errc, std::size_t bytes_tf) {
                 do_write_client_body(errc, bytes_tf);
             });
-
-            // boost::beast::http::async_read(client_sock_, downstream_buf_, *response_p_, [self = shared_from_this(), this](const boost::system::error_code &errc, std::size_t bytes_tf) {
-            //     do_write_client_body(errc, bytes_tf);
-            // });
-
-            // client_sock_.async_write_some(data.data(), [self = shared_from_this(), this] (const boost::system::error_code &errc, std::size_t bytes_tf) {
-            //     do_write_client_body(errc, bytes_tf);
-            // });
-            // boost::beast::http::async_write_some(client_sock_, data, [self = shared_from_this(), this] (const boost::system::error_code &errc, std::size_t bytes_tf) {
-            //     do_write_client_body(errc, bytes_tf);
-            // });
         } else {
             if (boost::asio::error::eof == errc) {
                 client_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
@@ -404,16 +388,10 @@ private:
 
     void do_write_client_body(const boost::system::error_code &errc, std::size_t bytes_tf) {
         std::println("Wrote downstream body: {}", bytes_tf);
-        boost::system::error_code errc2 = errc;
-        if (errc2 == boost::beast::http::error::need_buffer) {
-            errc2 = {};
-        }
-        if (!errc2) {
-            // response_p_.value().get().body().consume(bytes_tf); // Get rid of body bytes that we already sent
-            if (response_p_->is_done() && response_s_->is_done()) { // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on parser or serializer)
+        if (boost::beast::http::error::need_buffer == errc || !errc) {
+            if (response_p_->is_done() && response_s_->is_done()) {
                 std::println("Done body");
                 downstream_state_ = State::HEADERS;
-
                 response_p_->get().body().size = 0;
                 response_p_->get().body().data = nullptr;
             } else {
@@ -432,6 +410,8 @@ private:
         switch (downstream_state_) {
             case State::HEADERS: {
                 response_p_.emplace();
+                downstream_buf_.clear();
+
                 boost::beast::http::async_read_header(service_sock_, downstream_buf_, *response_p_,
                                                       [self = shared_from_this(), this](
                                                   const boost::system::error_code &errc,
