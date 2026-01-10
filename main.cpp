@@ -410,7 +410,7 @@ private:
         }
         if (!errc2) {
             // response_p_.value().get().body().consume(bytes_tf); // Get rid of body bytes that we already sent
-            if (response_p_->is_done()) { // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on parser or serializer)
+            if (response_p_->is_done() && response_s_->is_done()) { // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on parser or serializer)
                 std::println("Done body");
                 downstream_state_ = State::HEADERS;
 
