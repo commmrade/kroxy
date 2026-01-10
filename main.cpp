@@ -233,9 +233,13 @@ private:
                     do_write_service_header(errc, bytes_tf);
                 });
         } else {
-            std::println(
+            if (errc == boost::beast::http::error::end_of_stream) {
+                service_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+            } else {
+                std::println(
                 "Upstream read header error: {}", errc.message());
-            close_ses();
+                close_ses();
+            }
         }
     }
 
@@ -273,7 +277,7 @@ private:
             });
 
         } else {
-            if (boost::asio::error::eof == errc) {
+            if (boost::beast::http::error::end_of_stream == errc) {
                 service_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
             }
             std::println("Read client body failed: {}", errc.message());
@@ -340,9 +344,13 @@ private:
                     do_write_client_header(errc, bytes_tf);
                 });
         } else {
-            std::println(
+            if (boost::beast::http::error::end_of_stream == errc) {
+                client_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+            } else {
+                std::println(
                 "Downstream read header error: {}", errc.message());
-            close_ses();
+                close_ses();
+            }
         }
     }
 
@@ -379,7 +387,7 @@ private:
                 do_write_client_body(errc, bytes_tf);
             });
         } else {
-            if (boost::asio::error::eof == errc) {
+            if (boost::beast::http::error::end_of_stream == errc) {
                 client_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
             }
             std::println("Read service body failed: {}", errc.message());
