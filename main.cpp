@@ -40,7 +40,9 @@ public:
 
     Session &operator=(Session &&) = delete;
 
-    virtual void run() = 0;
+    virtual void run() {
+        std::println("virtual run()");
+    }
 
     virtual boost::asio::ip::tcp::socket &get_client() = 0;
 
@@ -199,7 +201,7 @@ private:
                 service_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
             } else {
                 std::println(
-                "Upstream read header error: {}", errc.message());
+                    "Upstream read header error: {}", errc.message());
                 close_ses();
             }
         }
@@ -222,15 +224,17 @@ private:
         }
     }
 
-    void do_read_client_body(const boost::system::error_code& errc, std::size_t bytes_tf) {
+    void do_read_client_body(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
             request_p_->get().body().size = us_buf_.size() - request_p_->get().body().size;
             request_p_->get().body().data = us_buf_.data();
             request_p_->get().body().more = !request_p_->is_done();
 
-            boost::beast::http::async_write(service_sock_, *request_s_, [self = shared_from_this(), this](const boost::system::error_code &errc, std::size_t bytes_tf) {
-                do_write_service_body(errc, bytes_tf);
-            });
+            boost::beast::http::async_write(service_sock_, *request_s_,
+                                            [self = shared_from_this(), this](
+                                        const boost::system::error_code &errc, std::size_t bytes_tf) {
+                                                do_write_service_body(errc, bytes_tf);
+                                            });
         } else {
             if (boost::beast::http::error::end_of_stream == errc) {
                 service_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
@@ -241,7 +245,8 @@ private:
 
     void do_write_service_body(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (errc == boost::beast::http::error::need_buffer || !errc) {
-            if (request_p_->is_done() && request_s_->is_done()) { // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on parser or serializer)
+            if (request_p_->is_done() && request_s_->is_done()) {
+                // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on parser or serializer)
                 upstream_state_ = State::HEADERS;
             }
             request_p_->get().body().data = us_buf_.data();
@@ -268,9 +273,11 @@ private:
                 break;
             }
             case State::BODY: {
-                boost::beast::http::async_read_some(client_sock_, upstream_buf_, *request_p_, [self = shared_from_this(), this] (const boost::system::error_code &errc, std::size_t bytes_tf) {
-                    do_read_client_body(errc, bytes_tf);
-                });
+                boost::beast::http::async_read_some(client_sock_, upstream_buf_, *request_p_,
+                                                    [self = shared_from_this(), this](
+                                                const boost::system::error_code &errc, std::size_t bytes_tf) {
+                                                        do_read_client_body(errc, bytes_tf);
+                                                    });
                 break;
             }
             default: {
@@ -298,7 +305,7 @@ private:
                 client_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
             } else {
                 std::println(
-                "Downstream read header error: {}", errc.message());
+                    "Downstream read header error: {}", errc.message());
                 close_ses();
             }
         }
@@ -322,7 +329,7 @@ private:
         }
     }
 
-    void do_read_service_body(const boost::system::error_code& errc, std::size_t bytes_tf) {
+    void do_read_service_body(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
             auto data = response_s_.value().get().body();
 
@@ -330,9 +337,11 @@ private:
             response_p_->get().body().data = ds_buf_.data();
             response_p_->get().body().more = !response_p_->is_done();
 
-            boost::beast::http::async_write(client_sock_, *response_s_, [self = shared_from_this(), this](const boost::system::error_code &errc, std::size_t bytes_tf) {
-                do_write_client_body(errc, bytes_tf);
-            });
+            boost::beast::http::async_write(client_sock_, *response_s_,
+                                            [self = shared_from_this(), this](
+                                        const boost::system::error_code &errc, std::size_t bytes_tf) {
+                                                do_write_client_body(errc, bytes_tf);
+                                            });
         } else {
             if (boost::beast::http::error::end_of_stream == errc) {
                 client_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
@@ -341,7 +350,7 @@ private:
         }
     }
 
-    void do_write_client_body(const boost::system::error_code &errc, std::size_t bytes_tf) {
+    void do_write_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (boost::beast::http::error::need_buffer == errc || !errc) {
             if (response_p_->is_done() && response_s_->is_done()) {
                 downstream_state_ = State::HEADERS;
@@ -372,9 +381,11 @@ private:
                 break;
             }
             case State::BODY: {
-                boost::beast::http::async_read_some(service_sock_, downstream_buf_, *response_p_, [self = shared_from_this(), this] (const boost::system::error_code &errc, std::size_t bytes_tf) {
-                   do_read_service_body(errc, bytes_tf);
-               });
+                boost::beast::http::async_read_some(service_sock_, downstream_buf_, *response_p_,
+                                                    [self = shared_from_this(), this](
+                                                const boost::system::error_code &errc, std::size_t bytes_tf) {
+                                                        do_read_service_body(errc, bytes_tf);
+                                                    });
                 break;
             }
             default: {
@@ -385,12 +396,17 @@ private:
     }
 
     void close_ses() {
+        boost::system::error_code ign;
+        std::ignore = client_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ign);
+        std::ignore = service_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ign);
+
         client_sock_.close();
         service_sock_.close();
     }
 
 public:
-    HttpSession(boost::asio::io_context &ctx, HttpConfig &cfg) : cfg_(cfg), client_sock_(ctx), service_sock_(ctx) {}
+    HttpSession(boost::asio::io_context &ctx, HttpConfig &cfg) : cfg_(cfg), client_sock_(ctx), service_sock_(ctx) {
+    }
 
     HttpSession(const HttpSession &) = delete;
 
@@ -400,7 +416,9 @@ public:
 
     HttpSession &operator=(HttpSession &&) = delete;
 
-    ~HttpSession() override = default;
+    ~HttpSession() override {
+        close_ses();
+    }
 
     void run() override {
         do_upstream();
@@ -480,23 +498,30 @@ private:
                 auto host = choose_host();
                 auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(ctx_);
                 resolver->async_resolve(host.host, std::to_string(host.port),
-                                        [session, resolver](const boost::system::error_code &errc,
-                                                            const boost::asio::ip::tcp::resolver::results_type &eps) {
+                                        [session, resolver](
+                                    const boost::system::error_code &errc,
+                                    const boost::asio::ip::tcp::resolver::results_type &
+                                    eps) {
                                             if (!errc) {
                                                 boost::asio::async_connect(
                                                     session->get_service(), eps,
-                                                    [session](const boost::system::error_code &errc,
-                                                              [[maybe_unused]] const boost::asio::ip::tcp::endpoint &
-                                                              endpoint) mutable {
+                                                    [session](
+                                                const boost::system::error_code &errc,
+                                                [[maybe_unused]] const
+                                                boost::asio::ip::tcp::endpoint &
+                                                endpoint) mutable {
                                                         if (!errc) {
                                                             session->run();
                                                         } else {
                                                             std::println(
-                                                                "Connecting to service failed: {}", errc.what());
+                                                                "Connecting to service failed: {}",
+                                                                errc.what());
                                                         }
                                                     });
                                             } else {
-                                                std::println("Resolving failed: {}", errc.message());
+                                                std::println(
+                                                    "Resolving failed: {}",
+                                                    errc.message());
                                             }
                                         });
             } else {
@@ -519,6 +544,7 @@ public:
 private:
     boost::asio::io_context &ctx_;
     boost::asio::ip::tcp::acceptor acceptor_;
+
     Config cfg_;
 };
 
@@ -534,9 +560,9 @@ int main() {
         server.run();
 
         boost::asio::signal_set signals(ctx, SIGINT, SIGTERM);
-        signals.async_wait([](const boost::system::error_code& errc, [[maybe_unused]] int signal_n) {
+        signals.async_wait([&ctx](const boost::system::error_code &errc, [[maybe_unused]] int signal_n) {
             if (!errc) {
-                std::exit(EXIT_FAILURE);
+                ctx.stop();
             }
         });
         ctx.run();

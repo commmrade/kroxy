@@ -8,6 +8,6 @@
   "stream": {
     "port": 8080,
     "timeout_ms": 500,
-    "pass_to": "python"
+    "pass_to": "top"
   }
 }
