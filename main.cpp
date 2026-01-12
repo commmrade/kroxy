@@ -62,19 +62,7 @@ private:
                                      });
         } else {
             if (errc == boost::asio::error::eof) {
-                // TODO: can this situation even happen, when buffer has data and async_read returned eof? asio::async guarantees all bytes are written
-                // // TODO: i probably should just send a shutdown, without writing, cuz its always empty, TEST IT
-                should_shut_service = true;
-                auto write_data = upstream_buf_.data();
-                // TODO: is it a good way to write all buffered data left considering there may be none
-                // And there probably can't be any buffered data left at this point, berrcause boost::asio::async_write writes everything, that is passed to it, even if its several async_write_some
-                // Maybe I can just issue a shutdown here
-
-                boost::asio::async_write(service_sock_, write_data,
-                                         [self = shared_from_this(), this](
-                                     const boost::system::error_code &errc, std::size_t bytes_tf) {
-                                             do_write_service(errc, bytes_tf);
-                                         });
+                service_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
             } else {
                 std::println("Client reading error: {}", errc.message());
                 close_ses();
@@ -85,13 +73,8 @@ private:
     void do_write_service(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
             upstream_buf_.consume(bytes_tf);
-            if (should_shut_service) {
-                service_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
-                if (should_shut_client) {
-                    close_ses();
-                }
-                return;
-            }
+            assert(upstream_buf_.size() == 0);
+
             do_upstream();
         } else {
             std::println("Service writing error: {}", errc.message());
@@ -120,19 +103,7 @@ private:
                                      });
         } else {
             if (errc == boost::asio::error::eof) {
-                should_shut_client = true;
-                auto write_data = downstream_buf_.data();
-
-
-                // TODO: is it a good way to write all buffered data left considering there may be none
-                // And there probably can't be any buffered data left at this point, berrcause boost::asio::async_write writes everything, that is passed to it, even if its several async_write_some
-                // Maybe I can just issue a shutdown here
-
-                boost::asio::async_write(client_sock_, write_data,
-                                         [self = shared_from_this(), this](
-                                     const boost::system::error_code &errc, std::size_t bytes_tf) {
-                                             do_write_client(errc, bytes_tf);
-                                         });
+                client_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
             } else {
                 std::println("Service reading error: {}", errc.message());
                 close_ses();
@@ -143,13 +114,8 @@ private:
     void do_write_client(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
             downstream_buf_.consume(bytes_tf);
-            if (should_shut_client) {
-                client_sock_.shutdown(boost::asio::ip::tcp::socket::shutdown_send);
-                if (should_shut_client && should_shut_service) {
-                    close_ses();
-                }
-                return;
-            }
+            assert(downstream_buf_.size() == 0);
+
             do_downstream();
         } else {
             std::println("Client writing error: {}", errc.message());
@@ -201,9 +167,6 @@ private:
     friend class Server;
     boost::asio::ip::tcp::socket client_sock_;
     boost::asio::ip::tcp::socket service_sock_;
-
-    bool should_shut_client{false};
-    bool should_shut_service{false};
 
     boost::asio::streambuf upstream_buf_;
     boost::asio::streambuf downstream_buf_;

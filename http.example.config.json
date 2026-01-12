@@ -13,6 +13,6 @@
       "X-Real-IP": "$addr"
     },
     "timeout_ms": 5000,
-    "pass_to": "python"
+    "pass_to": "top"
   }
 }
