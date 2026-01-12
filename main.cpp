@@ -1,14 +1,11 @@
 #include <boost/asio.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/placeholders.hpp>
-#include <boost/asio/read.hpp>
 #include <boost/asio/streambuf.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/beast.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/http.hpp>
-#include <boost/beast/http/dynamic_body_fwd.hpp>
 #include <boost/beast/http/message.hpp>
 #include <boost/beast/http/message_fwd.hpp>
 #include <boost/beast/http/parser_fwd.hpp>
@@ -20,7 +17,6 @@
 #include <filesystem>
 #include <memory>
 #include <print>
-#include <json/json.h>
 #include <stdexcept>
 #include "config.hpp"
 
@@ -184,7 +180,7 @@ private:
 
 
     // client to service
-    void do_read_client_header(const boost::system::error_code &errc, std::size_t bytes_tf) {
+    void do_read_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
             auto &msg = request_p_.value().get();
             process_headers(msg);
@@ -224,7 +220,7 @@ private:
         }
     }
 
-    void do_read_client_body(const boost::system::error_code &errc, std::size_t bytes_tf) {
+    void do_read_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
             request_p_->get().body().size = us_buf_.size() - request_p_->get().body().size;
             request_p_->get().body().data = us_buf_.data();
@@ -243,7 +239,7 @@ private:
         }
     }
 
-    void do_write_service_body(const boost::system::error_code &errc, std::size_t bytes_tf) {
+    void do_write_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (errc == boost::beast::http::error::need_buffer || !errc) {
             if (request_p_->is_done() && request_s_->is_done()) {
                 // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on parser or serializer)
@@ -282,14 +278,13 @@ private:
             }
             default: {
                 throw std::runtime_error("Not implemented");
-                break;
             }
         }
     }
 
     // service to client
 
-    void do_read_service_header(const boost::system::error_code &errc, std::size_t bytes_tf) {
+    void do_read_service_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
             auto &msg = response_p_.value().get();
             response_s_.emplace(msg);
@@ -329,10 +324,8 @@ private:
         }
     }
 
-    void do_read_service_body(const boost::system::error_code &errc, std::size_t bytes_tf) {
+    void do_read_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
-            auto data = response_s_.value().get().body();
-
             response_p_->get().body().size = ds_buf_.size() - response_p_->get().body().size;
             response_p_->get().body().data = ds_buf_.data();
             response_p_->get().body().more = !response_p_->is_done();
@@ -448,16 +441,16 @@ private:
 
     std::array<char, BUF_SIZE> us_buf_{};
 
-    std::optional<boost::beast::http::request_parser<boost::beast::http::buffer_body> > request_p_{};
-    std::optional<boost::beast::http::request_serializer<boost::beast::http::buffer_body> > request_s_{};
+    std::optional<boost::beast::http::request_parser<boost::beast::http::buffer_body> > request_p_;
+    std::optional<boost::beast::http::request_serializer<boost::beast::http::buffer_body> > request_s_;
     State upstream_state_{};
 
     boost::beast::flat_buffer downstream_buf_;
 
     std::array<char, BUF_SIZE> ds_buf_{};
 
-    std::optional<boost::beast::http::response_parser<boost::beast::http::buffer_body> > response_p_{};
-    std::optional<boost::beast::http::response_serializer<boost::beast::http::buffer_body> > response_s_{};
+    std::optional<boost::beast::http::response_parser<boost::beast::http::buffer_body> > response_p_;
+    std::optional<boost::beast::http::response_serializer<boost::beast::http::buffer_body> > response_s_;
     State downstream_state_{};
 };
 
