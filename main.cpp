@@ -12,6 +12,7 @@
 #include <boost/beast/http/serializer_fwd.hpp>
 #include <boost/beast/http/write.hpp>
 #include <boost/system/detail/error_code.hpp>
+#include <boost/asio/ssl.hpp>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -36,13 +37,11 @@ public:
 
     Session &operator=(Session &&) = delete;
 
-    virtual void run() {
-        std::println("virtual run()");
-    }
+    virtual void run() = 0;
 
-    virtual boost::asio::ip::tcp::socket &get_client() = 0;
+    virtual boost::asio::basic_socket<boost::asio::ip::tcp> &get_client() = 0;
 
-    virtual boost::asio::ip::tcp::socket &get_service() = 0;
+    virtual boost::asio::basic_socket<boost::asio::ip::tcp> &get_service() = 0;
 };
 
 
@@ -162,13 +161,142 @@ public:
     }
 
 private:
-    friend class Server;
     boost::asio::ip::tcp::socket client_sock_;
     boost::asio::ip::tcp::socket service_sock_;
 
     boost::asio::streambuf upstream_buf_;
     boost::asio::streambuf downstream_buf_;
 };
+
+class TlsStreamSession : public Session, public std::enable_shared_from_this<TlsStreamSession> {
+public:
+    TlsStreamSession(boost::asio::io_context& ctx, boost::asio::ssl::context& ssl_ctx) : client_sock_(ctx, ssl_ctx), service_sock_(ctx) {}
+
+    TlsStreamSession(const TlsStreamSession &) = delete;
+
+    TlsStreamSession(TlsStreamSession &&) = delete;
+
+    TlsStreamSession &operator=(const TlsStreamSession &) = delete;
+
+    TlsStreamSession &operator=(TlsStreamSession &&) = delete;
+
+    ~TlsStreamSession() override {
+        close_ses();
+    }
+
+    void do_read_client(const boost::system::error_code &errc, std::size_t bytes_tf) {
+        if (!errc) {
+            upstream_buf_.commit(bytes_tf);
+            auto write_data = upstream_buf_.data();
+            boost::asio::async_write(service_sock_, write_data,
+                                     [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                                                       std::size_t bytes_tf) {
+                                         do_write_service(errc, bytes_tf);
+                                     });
+        } else {
+            std::println("Client reading error: {}", errc.message());
+            close_ses();
+        }
+    }
+
+    void do_write_service(const boost::system::error_code &errc, std::size_t bytes_tf) {
+        if (!errc) {
+            upstream_buf_.consume(bytes_tf);
+            assert(upstream_buf_.size() == 0);
+
+            do_upstream();
+        } else {
+            std::println("Service writing error: {}", errc.message());
+            close_ses();
+        }
+    }
+
+    void do_upstream() {
+        client_sock_.async_read_some(upstream_buf_.prepare(BUF_SIZE),
+                                     [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                                                       std::size_t bytes_tf) {
+                                         do_read_client(errc, bytes_tf);
+                                     });
+    }
+
+    // service to client
+    void do_read_service(const boost::system::error_code &errc, std::size_t bytes_tf) {
+        if (!errc) {
+            downstream_buf_.commit(bytes_tf);
+            auto write_data = downstream_buf_.data();
+
+            boost::asio::async_write(client_sock_, write_data,
+                                     [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                                                       std::size_t bytes_tf) {
+                                         do_write_client(errc, bytes_tf);
+                                     });
+        } else {
+            if (boost::asio::error::eof == errc) {
+                client_sock_.async_shutdown([self = shared_from_this(), this] (const boost::system::error_code& errc) {
+                    if (!errc) {
+                        close_ses();
+                    } else {
+                        std::println("Client TLS shutdown failed: {}", errc.message());
+                    }
+                });
+            } else {
+                std::println("Service reading error: {}", errc.message());
+                close_ses();
+            }
+        }
+    }
+
+    void do_write_client(const boost::system::error_code &errc, std::size_t bytes_tf) {
+        if (!errc) {
+            downstream_buf_.consume(bytes_tf);
+            assert(downstream_buf_.size() == 0);
+
+            do_downstream();
+        } else {
+            std::println("Client writing error: {}", errc.message());
+            close_ses();
+        }
+    }
+
+    void do_downstream() {
+        service_sock_.async_read_some(downstream_buf_.prepare(BUF_SIZE),
+                                      [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                                                        std::size_t bytes_tf) {
+                                          do_read_service(errc, bytes_tf);
+                                      });
+    }
+
+    void run() override {
+        client_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::server, [self = shared_from_this(), this] (const boost::system::error_code& errc) {
+            if (!errc) {
+                do_upstream();
+                do_downstream();
+            } else {
+                std::println("Handshake failed: {}", errc.message());
+            }
+        });
+    }
+
+    void close_ses() {
+        client_sock_.lowest_layer().close();
+        service_sock_.close();
+    }
+
+    boost::asio::basic_socket<boost::asio::ip::tcp>& get_client() override {
+        return client_sock_.lowest_layer();
+    }
+
+    boost::asio::basic_socket<boost::asio::ip::tcp> &get_service() override {
+        return service_sock_;
+    }
+private:
+    boost::asio::ssl::stream<boost::asio::ip::tcp::socket> client_sock_;
+    boost::asio::ip::tcp::socket service_sock_;
+
+    boost::asio::streambuf upstream_buf_;
+    boost::asio::streambuf downstream_buf_;
+};
+
 
 class HttpSession : public Session, public std::enable_shared_from_this<HttpSession> {
 private:
@@ -470,7 +598,12 @@ private:
 
     std::shared_ptr<Session> make_session() {
         if (cfg_.is_stream()) {
-            return std::make_shared<StreamSession>(ctx_);
+            const bool tls_enabled = true;
+            if (tls_enabled) {
+                return std::make_shared<TlsStreamSession>(ctx_, ssl_ctx_);
+            } else {
+                return std::make_shared<StreamSession>(ctx_);
+            }
         } else {
             return std::make_shared<HttpSession>(ctx_, std::get<HttpConfig>(cfg_.server_config));
         }
@@ -528,6 +661,17 @@ public:
     Server(boost::asio::io_context &ctx, Config conf) : ctx_(ctx), acceptor_(ctx), cfg_(std::move(conf)) {
         auto port = cfg_.get_port();
         setup_socket(ctx, port);
+
+        const bool tls_enabled = true;
+        if (tls_enabled) {
+            ssl_ctx_.set_verify_mode(boost::asio::ssl::verify_peer);
+            ssl_ctx_.use_certificate_chain_file("../tls/certificate.crt");
+            ssl_ctx_.use_private_key_file("../tls/private.key", boost::asio::ssl::context_base::file_format::pem);
+            ssl_ctx_.set_options(
+                        boost::asio::ssl::context::default_workarounds
+                        | boost::asio::ssl::context::no_sslv2
+                        | boost::asio::ssl::context::single_dh_use);
+        }
     }
 
     void run() {
@@ -537,6 +681,7 @@ public:
 private:
     boost::asio::io_context &ctx_;
     boost::asio::ip::tcp::acceptor acceptor_;
+    boost::asio::ssl::context ssl_ctx_{boost::asio::ssl::context::tls_server};
 
     Config cfg_;
 };
@@ -546,7 +691,7 @@ int main() {
     try {
         boost::asio::io_context ctx;
 
-        const std::filesystem::path path{"../http.example.config.json"};
+        const std::filesystem::path path{"../stream.example.config.json"};
         auto cfg = parse_config(path);
 
         Server server{ctx, std::move(cfg)};

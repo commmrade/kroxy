@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED true)
 # Boost и liburing
 find_package(Boost CONFIG REQUIRED)
 find_package(PkgConfig REQUIRED)
+find_package(OpenSSL REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
 
 # json-cpp
@@ -39,6 +40,8 @@ target_compile_options(kroxy PRIVATE
 
 target_link_libraries(kroxy PRIVATE
     Boost::boost
+    OpenSSL::SSL
+    OpenSSL::Crypto
     ${LIBURING_LIBRARIES}
     jsoncpp_lib
 )
