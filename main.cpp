@@ -742,31 +742,28 @@ private:
 
     std::shared_ptr<Session> make_session(Host &host) {
         if (cfg_.is_stream()) {
-            const bool tls_enabled = true;
-            if (tls_enabled) {
+            if (host.tls_enabled) {
                 auto ssl_clnt_ctx = std::make_unique<boost::asio::ssl::context>(
                     boost::asio::ssl::context_base::tls_client);
                 ssl_clnt_ctx->set_default_verify_paths();
                 ssl_clnt_ctx->set_verify_mode(boost::asio::ssl::verify_peer);
                 return std::make_shared<StreamSession>(ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), true, true);
             } else {
-                auto ssl_clnt_ctx = std::make_unique<boost::asio::ssl::context>(
-                    boost::asio::ssl::context_base::tls_client);
+                auto ssl_clnt_ctx = std::make_unique<boost::asio::ssl::context>(boost::asio::ssl::context_base::tls_client);
                 return std::make_shared<StreamSession>(ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), false, false);
             }
         } else {
-            const bool tls_enabled = true;
-            if (tls_enabled) {
+            if (host.tls_enabled) {
                 auto ssl_clnt_ctx = std::make_unique<boost::asio::ssl::context>(
                    boost::asio::ssl::context_base::tls_client);
                 ssl_clnt_ctx->set_default_verify_paths();
                 ssl_clnt_ctx->set_verify_mode(boost::asio::ssl::verify_peer);
 
-                return std::make_shared<HttpSession>(std::get<HttpConfig>(cfg_.server_config), ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), true, true);
+                return std::make_shared<HttpSession>(std::get<HttpConfig>(cfg_.server_config), ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
             } else {
                 auto ssl_clnt_ctx = std::make_unique<boost::asio::ssl::context>(
-                   boost::asio::ssl::context_base::tls_client);
-                return std::make_shared<HttpSession>(std::get<HttpConfig>(cfg_.server_config), ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), false, false);
+                boost::asio::ssl::context_base::tls_client);
+                return std::make_shared<HttpSession>(std::get<HttpConfig>(cfg_.server_config), ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
             }
         }
     }
@@ -776,7 +773,6 @@ private:
         const auto &serv_block = cfg_.get_servers_block();
         assert(!serv_block.empty());
         auto host = *serv_block.begin();
-
         return host;
     }
 
@@ -825,11 +821,9 @@ public:
         auto port = cfg_.get_port();
         setup_socket(ctx, port);
 
-        const bool tls_enabled = true;
-        if (tls_enabled) {
-            // ssl_ctx_.set_verify_mode(boost::asio::ssl::verify_peer); // no point in verifying client
-            ssl_ctx_.use_certificate_chain_file("../tls/certificate.crt");
-            ssl_ctx_.use_private_key_file("../tls/private.key", boost::asio::ssl::context_base::file_format::pem);
+        if (cfg_.is_tls_enabled()) {
+            ssl_ctx_.use_certificate_chain_file(cfg_.get_tls_cert_path());
+            ssl_ctx_.use_private_key_file(cfg_.get_tls_key_path(), boost::asio::ssl::context_base::file_format::pem);
             ssl_ctx_.set_options(
                 boost::asio::ssl::context::default_workarounds
                 | boost::asio::ssl::context::no_sslv2

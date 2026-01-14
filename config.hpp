@@ -13,6 +13,7 @@
 struct Host {
     std::string host;
     unsigned short port{};
+    bool tls_enabled{};
 };
 
 struct Servers {
@@ -23,6 +24,10 @@ struct StreamConfig {
     unsigned short port{};
     std::size_t timeout_ms{};
     std::string pass_to;
+
+    bool tls_enabled{};
+    std::string tls_cert_path;
+    std::string tls_key_path;
 };
 
 // Right now these two are similar, but what if other fields are added. That's why they are in a std::variant<...>
@@ -31,6 +36,10 @@ struct HttpConfig {
     std::unordered_map<std::string, std::string> headers;
     std::size_t timeout_ms{};
     std::string pass_to;
+
+    bool tls_enabled{};
+    std::string tls_cert_path;
+    std::string tls_key_path;
 };
 
 
@@ -68,6 +77,35 @@ struct Config {
     const std::vector<Host> &get_servers_block() {
         return servers.servers[get_pass_to()];
     }
+
+    bool is_tls_enabled() const {
+        if (std::holds_alternative<StreamConfig>(server_config)) {
+            auto serv_cfg = std::get<StreamConfig>(server_config);
+            return serv_cfg.tls_enabled;
+        } else {
+            auto serv_cfg = std::get<HttpConfig>(server_config);
+            return serv_cfg.tls_enabled;
+        }
+    }
+
+    std::string get_tls_cert_path() const {
+        if (std::holds_alternative<StreamConfig>(server_config)) {
+            auto serv_cfg = std::get<StreamConfig>(server_config);
+            return serv_cfg.tls_cert_path;
+        } else {
+            auto serv_cfg = std::get<HttpConfig>(server_config);
+            return serv_cfg.tls_cert_path;
+        }
+    }
+    std::string get_tls_key_path() const {
+        if (std::holds_alternative<StreamConfig>(server_config)) {
+            auto serv_cfg = std::get<StreamConfig>(server_config);
+            return serv_cfg.tls_key_path;
+        } else {
+            auto serv_cfg = std::get<HttpConfig>(server_config);
+            return serv_cfg.tls_key_path;
+        }
+    }
 };
 
 
@@ -100,6 +138,11 @@ inline Config parse_config(const std::filesystem::path &path) {
         if (cfg.pass_to.empty()) {
             throw std::runtime_error("Pass_to is not defined");
         }
+
+        cfg.tls_enabled = stream_obj.get("tls_enabled", false).asBool();
+        cfg.tls_cert_path = stream_obj.get("tls_cert_path", "").asString();
+        cfg.tls_key_path = stream_obj.get("tls_key_path", "").asString();
+
         result.server_config = cfg;
     } else if (json.isMember("http")) {
         // parse http settings
@@ -114,6 +157,16 @@ inline Config parse_config(const std::filesystem::path &path) {
         cfg.pass_to = http_obj.get("pass_to", "").asString();
         if (cfg.pass_to.empty()) {
             throw std::runtime_error("Pass_to is not defined");
+        }
+
+        cfg.tls_enabled = http_obj.get("tls_enabled", false).asBool();
+        cfg.tls_cert_path = http_obj.get("tls_cert_path", "").asString();
+        if (cfg.tls_enabled && cfg.tls_cert_path.empty()) {
+            throw std::runtime_error("TLS certificate path is not specified!");
+        }
+        cfg.tls_key_path = http_obj.get("tls_key_path", "").asString();
+        if (cfg.tls_enabled && cfg.tls_key_path.empty()) {
+            throw std::runtime_error("TLS private key path is not specified!");
         }
 
         const auto headers_obj = http_obj["headers"];
@@ -135,8 +188,9 @@ inline Config parse_config(const std::filesystem::path &path) {
             for (const auto &host: block) {
                 auto host_str = host["host"].asString();
                 auto port = host["port"].asInt();
+                auto tls_enabled = host["tls_enabled"].asBool();
 
-                result.servers.servers[serv_block].emplace_back(host_str, port);
+                result.servers.servers[serv_block].emplace_back(host_str, port, tls_enabled);
             }
         }
     } else {
