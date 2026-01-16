@@ -278,7 +278,7 @@ public:
         close_ses();
     }
 
-    void set_sni(const std::string_view hostname) override {
+    void set_sni(const std::string_view hostname) {
         auto &ref = service_sock_.get_tls_stream(service_sock_.inner_stream());
         auto ret = SSL_set_tlsext_host_name(ref.native_handle(), hostname.data());
         if (!ret) {
