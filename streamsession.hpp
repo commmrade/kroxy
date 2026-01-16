@@ -17,21 +17,22 @@ private:
                     do_write_service(errc, bytes_tf);
                 });
         } else {
-            if (client_sock_.is_tls()) {
-                std::println("Client reading error: {}", errc.message());
-                close_ses();
-            } else {
+            if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
+                // If we get this, it is signaling the client connection is ready to close, but we may still want to get info from the other socket
+                // Therefore I send a FIn to the service socket, which may flush the output buffers and then close the connection
+                // TLS 1.2 forbids half-closed state, but I hope that servers/clients deal with it themselves, at the same time TLS 1.3 allows half-closed state
+
+                // Calls either ssl::stream::async_shutdown or socket::shutdown
                 if (service_sock_.is_tls()) {
-                    std::println("Client reading error: {}", errc.message());
-                    close_ses();
+                    service_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
+                    });
                 } else {
-                    if (errc == boost::asio::error::eof) {
-                        service_sock_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
-                    } else {
-                        std::println("Client reading error: {}", errc.message());
-                        close_ses();
-                    }
+                    service_sock_.shutdown();
                 }
+                // After this function is done and we got everything from the other host, session will die by itself
+            } else {
+                std::println("Reading client error: {}", errc.message());
+                close_ses(); // Hard error
             }
         }
     }
@@ -74,16 +75,16 @@ private:
                 std::println("Service reading error: {}", errc.message());
                 close_ses();
             } else {
-                if (client_sock_.is_tls()) {
-                    std::println("Service reading error: {}", errc.message());
-                    close_ses();
-                } else {
-                    if (errc == boost::asio::error::eof) {
-                        client_sock_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+                if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
+                    if (client_sock_.is_tls()) {
+                        client_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
+                        });
                     } else {
-                        std::println("Service reading error: {}", errc.message());
-                        close_ses();
+                        client_sock_.shutdown();
                     }
+                } else {
+                    std::println("Reading service error: {}", errc.message());
+                    close_ses(); // Hard error
                 }
             }
         }
@@ -125,12 +126,11 @@ private:
     }
 
 public:
-    explicit StreamSession(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+    explicit StreamSession(boost::asio::io_context &ctx, Host host, boost::asio::ssl::context &ssl_srv_ctx,
                            std::unique_ptr<boost::asio::ssl::context> ssl_clnt_ctx, bool is_client_tls,
                            bool is_service_tls)
-        : ssl_clnt_ctx_(std::move(ssl_clnt_ctx)),
-          client_sock_(ctx, ssl_srv_ctx, is_client_tls), service_sock_(ctx, *ssl_clnt_ctx_, is_service_tls) {
-        std::println("is cleint tls: {}, is service tls: {}", is_client_tls, is_service_tls);
+        : ssl_clnt_ctx_(std::move(ssl_clnt_ctx)), client_sock_(ctx, ssl_srv_ctx, is_client_tls),
+          service_sock_(ctx, *ssl_clnt_ctx_, is_service_tls), host_(std::move(host)) {
     }
 
     StreamSession(const StreamSession &) = delete;
@@ -152,7 +152,7 @@ public:
                                              if (client_sock_.is_tls()) {
                                                  auto ds = std::make_shared<boost::asio::steady_timer>(
                                                      service_sock_.get_executor());
-                                                 ds->expires_after(std::chrono::seconds(1));
+                                                 ds->expires_after(std::chrono::milliseconds(200));
                                                  ds->async_wait(
                                                      [self = self, this, ds](const boost::system::error_code &errc) {
                                                          if (!errc) {
@@ -172,7 +172,7 @@ public:
 
         if (service_sock_.is_tls()) {
             auto &ref = Stream::get_tls_stream(service_sock_.inner_stream());
-            SSL_set_tlsext_host_name(ref.native_handle(), "google.com"); // TODO: pass host
+            SSL_set_tlsext_host_name(ref.native_handle(), host_.host.c_str()); // TODO: pass host
         }
 
         service_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::client,
@@ -181,7 +181,7 @@ public:
                                               if (service_sock_.is_tls()) {
                                                   auto ds = std::make_shared<boost::asio::steady_timer>(
                                                       service_sock_.get_executor());
-                                                  ds->expires_after(std::chrono::seconds(1));
+                                                  ds->expires_after(std::chrono::milliseconds(200));
                                                   ds->async_wait(
                                                       [self = self, this, ds](const boost::system::error_code &errc) {
                                                           if (!errc) {
@@ -203,6 +203,8 @@ private:
 
     Stream client_sock_;
     Stream service_sock_;
+
+    Host host_;
 
     boost::asio::streambuf upstream_buf_;
     boost::asio::streambuf downstream_buf_;

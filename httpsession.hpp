@@ -31,9 +31,17 @@ private:
                                                  do_write_service_header(errc, bytes_tf);
                                              });
         } else {
-            std::println(
-                "Upstream read header error: {}", errc.message());
-            close_ses();
+            if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
+                if (service_sock_.is_tls()) {
+                    service_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
+                    });
+                } else {
+                    service_sock_.shutdown();
+                }
+            } else {
+                std::println("Reading client header: {}", errc.message());
+                close_ses(); // Hard error
+            }
         }
     }
 
@@ -66,11 +74,16 @@ private:
                                                   do_write_service_body(errc, bytes_tf);
                                               });
         } else {
-            if (boost::beast::http::error::end_of_stream == errc && (!client_sock_.is_tls() && !service_sock_.is_tls())) {
-                service_sock_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+            if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc {
+                if (service_sock_.is_tls()) {
+                    service_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
+                    });
+                } else {
+                    service_sock_.shutdown();
+                }
             } else {
-                std::println("Read client body failed: {}", errc.message());
-                close_ses();
+                std::println("Reading client body: {}", errc.message());
+                close_ses(); // Hard error
             }
         }
     }
@@ -133,9 +146,17 @@ private:
                                                 do_write_client_header(errc, bytes_tf);
                                             });
         } else {
-            std::println(
-                "Downstream read header error: {}", errc.message());
-            close_ses();
+            if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
+                if (client_sock_.is_tls()) {
+                    client_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
+                    });
+                } else {
+                    client_sock_.shutdown();
+                }
+            } else {
+                std::println("Reading service header: {}", errc.message());
+                close_ses(); // Hard error
+            }
         }
     }
 
@@ -169,11 +190,16 @@ private:
                                                  do_write_client_body(errc, bytes_tf);
                                              });
         } else {
-            if (boost::beast::http::error::end_of_stream == errc && (!service_sock_.is_tls() && !client_sock_.is_tls())) {
-                client_sock_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+            if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
+                if (client_sock_.is_tls()) {
+                    client_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
+                    });
+                } else {
+                    client_sock_.shutdown();
+                }
             } else {
-                std::println("Read service body failed: {}", errc.message());
-                close_ses();
+                std::println("Reading service body: {}", errc.message());
+                close_ses(); // Hard error
             }
         }
     }
@@ -225,11 +251,6 @@ private:
         }
     }
 
-    void fail_close() {
-        // TODO
-    }
-
-
     void close_ses() {
         client_sock_.socket().close();
         service_sock_.socket().close();
@@ -265,7 +286,7 @@ public:
                                              if (client_sock_.is_tls()) {
                                                  auto ds = std::make_shared<boost::asio::steady_timer>(
                                                      service_sock_.get_executor());
-                                                 ds->expires_after(std::chrono::seconds(1)); // TODO: HOW TO AVOID THIS
+                                                 ds->expires_after(std::chrono::milliseconds(200));
                                                  ds->async_wait(
                                                      [self = self, this, ds](const boost::system::error_code &errc) {
                                                          if (!errc) {
@@ -296,7 +317,7 @@ public:
                                               if (service_sock_.is_tls()) {
                                                   auto ds = std::make_shared<boost::asio::steady_timer>(
                                                       service_sock_.get_executor());
-                                                  ds->expires_after(std::chrono::seconds(1));
+                                                  ds->expires_after(std::chrono::milliseconds(200));
                                                   ds->async_wait(
                                                       [self = self, this, ds](const boost::system::error_code &errc) {
                                                           if (!errc) {
@@ -331,13 +352,9 @@ private:
     HttpConfig &cfg_;
     Host host_;
 
-    // boost::asio::ssl::stream<boost::asio::ip::tcp::socket> client_sock_;
-    // bool is_client_tls_{false};
     Stream client_sock_;
 
     std::unique_ptr<boost::asio::ssl::context> ssl_clnt_ctx_;
-    // boost::asio::ssl::stream<boost::asio::ip::tcp::socket> service_sock_;
-    // bool is_service_tls_{false};
     Stream service_sock_;
 
 

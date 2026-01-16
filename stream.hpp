@@ -25,8 +25,14 @@ public:
         std::visit([token = std::forward<CompletionToken>(token), this]<typename Stream>(Stream&& stream) mutable {
             if constexpr (is_ssl_stream_v<Stream>) {
                 stream.async_shutdown(std::move(token));
+            } else {
+                socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
             }
         }, stream_);
+    }
+
+    void shutdown() {
+        socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
     }
 
     template<typename ConstBuffer, typename CompletionToken>
