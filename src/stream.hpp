@@ -106,21 +106,30 @@ public:
         }, stream_);
     }
 
-
+    // Called when wrapping client socket, since there is only 1 Server SSL_CTX, it is passed as ref
     Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx, bool is_tls) : stream_{[is_tls, &ctx, &ssl_ctx] -> StreamVariant {
         if (is_tls) {
             return ssl_stream{ctx, ssl_ctx};
         } else {
             return boost::asio::ip::tcp::socket{ctx};
         }
-    }()}, ctx_(ssl_ctx) {
+    }()} {
+    }
+
+    // Called when wrapping a service sock, SSL_CTX is created for each service, therefore it is moved inside here
+    Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &&ssl_ctx, bool is_tls) : ssl_ctx_{std::move(ssl_ctx)},
+    stream_{[is_tls, &ctx, this] -> StreamVariant {
+        if (is_tls) {
+            return ssl_stream{ctx, ssl_ctx_.value()};
+        } else {
+            return boost::asio::ip::tcp::socket{ctx};
+        }
+    }()} {
     }
 
 private:
+    std::optional<boost::asio::ssl::context> ssl_ctx_;
     StreamVariant stream_;
-
-    boost::asio::ssl::context &ctx_;
-
 public:
     StreamVariant &inner_stream() {
         return stream_;

@@ -126,11 +126,14 @@ private:
     }
 
 public:
-    explicit StreamSession(boost::asio::io_context &ctx, Host host, boost::asio::ssl::context &ssl_srv_ctx,
-                           std::unique_ptr<boost::asio::ssl::context> ssl_clnt_ctx, bool is_client_tls,
+    explicit StreamSession(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+                           boost::asio::ssl::context&& ssl_clnt_ctx, bool is_client_tls,
                            bool is_service_tls)
-        : ssl_clnt_ctx_(std::move(ssl_clnt_ctx)), client_sock_(ctx, ssl_srv_ctx, is_client_tls),
-          service_sock_(ctx, *ssl_clnt_ctx_, is_service_tls), host_(std::move(host)) {
+        : client_sock_(ctx, ssl_srv_ctx, is_client_tls),
+          service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
+        if (service_sock_.is_tls()) {
+
+        }
     }
 
     StreamSession(const StreamSession &) = delete;
@@ -143,6 +146,15 @@ public:
 
     ~StreamSession() override {
         close_ses();
+    }
+
+    void set_sni(const std::string_view hostname) override {
+        auto &ref = service_sock_.get_tls_stream(service_sock_.inner_stream());
+        auto ret = SSL_set_tlsext_host_name(ref.native_handle(), hostname.data());
+        if (!ret) {
+            std::print("SSL_set_tlsext_host_name failed");
+            close_ses();
+        }
     }
 
     void run() override {
@@ -168,13 +180,6 @@ public:
                                          }
                                      });
 
-        // TODO: SYNCHRONIZE, otherwise it will prbably throw since one of the sockets will nto be connected
-
-        if (service_sock_.is_tls()) {
-            auto &ref = Stream::get_tls_stream(service_sock_.inner_stream());
-            SSL_set_tlsext_host_name(ref.native_handle(), host_.host.c_str()); // TODO: pass host
-        }
-
         service_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::client,
                                       [self = shared_from_this(), this](const boost::system::error_code &errc) {
                                           if (!errc) {
@@ -199,12 +204,8 @@ public:
     }
 
 private:
-    std::unique_ptr<boost::asio::ssl::context> ssl_clnt_ctx_;
-
     Stream client_sock_;
     Stream service_sock_;
-
-    Host host_;
 
     boost::asio::streambuf upstream_buf_;
     boost::asio::streambuf downstream_buf_;

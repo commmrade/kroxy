@@ -20,4 +20,6 @@ public:
     virtual boost::asio::ip::tcp::socket &get_client() = 0;
 
     virtual boost::asio::ip::tcp::socket &get_service() = 0;
+
+    virtual void set_sni(const std::string_view hostname) = 0;
 };

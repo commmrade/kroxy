@@ -257,12 +257,19 @@ private:
     }
 
 public:
-    HttpSession(HttpConfig &cfg, Host host, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
-                std::unique_ptr<boost::asio::ssl::context> ssl_clnt_ctx, bool is_client_tls, bool is_service_tls)
-        : cfg_(cfg), host_(std::move(host)),
+    HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+                boost::asio::ssl::context&& ssl_clnt_ctx, bool is_client_tls, bool is_service_tls)
+        : cfg_(cfg),
           client_sock_(ctx, ssl_srv_ctx, is_client_tls),
-          ssl_clnt_ctx_(std::move(ssl_clnt_ctx)),
-          service_sock_(ctx, *ssl_clnt_ctx_, is_service_tls) {
+          service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
+        if (service_sock_.is_tls()) {
+            auto &ref = service_sock_.get_tls_stream(service_sock_.inner_stream());
+            auto ret = SSL_set_tlsext_host_name(ref.native_handle(), host.host.c_str());
+            if (!ret) {
+                std::print("SSL_set_tlsext_host_name failed");
+                close_ses();
+            }
+        }
     }
 
     // cfg_(cfg), client_sock_(ctx), service_sock_(ctx)}
@@ -277,6 +284,14 @@ public:
 
     ~HttpSession() override {
         close_ses();
+    }
+
+    void set_sni(const std::string_view hostname) override {
+        auto &ref = service_sock_.get_tls_stream(service_sock_.inner_stream());
+        auto ret = SSL_set_tlsext_host_name(ref.native_handle(), hostname.data());
+        if (!ret) {
+            std::print("SSL_set_tlsext_host_name failed");
+        }
     }
 
     void run() override {
@@ -303,14 +318,6 @@ public:
                                          }
                                      });
 
-        if (service_sock_.is_tls()) {
-            auto &ref = service_sock_.get_tls_stream(service_sock_.inner_stream());
-            auto ret = SSL_set_tlsext_host_name(ref.native_handle(), host_.host.c_str());
-            if (!ret) {
-                std::print("SSL_set_tlsext_host_name failed");
-                close_ses();
-            }
-        }
         service_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::client,
                                       [self = shared_from_this(), this](const boost::system::error_code &errc) {
                                           if (!errc) {
@@ -350,11 +357,8 @@ private:
     };
 
     HttpConfig &cfg_;
-    Host host_;
 
     Stream client_sock_;
-
-    std::unique_ptr<boost::asio::ssl::context> ssl_clnt_ctx_;
     Stream service_sock_;
 
 
