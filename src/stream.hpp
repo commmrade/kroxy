@@ -106,6 +106,17 @@ public:
         }, stream_);
     }
 
+    bool set_sni(const std::string_view hostname) {
+        assert(is_tls());
+        auto &ref = get_tls_stream(stream_);
+        auto ret = SSL_set_tlsext_host_name(ref.native_handle(), hostname.data());
+        if (!ret) {
+            std::print("SSL_set_tlsext_host_name failed");
+            return false;
+        }
+        return true;
+    }
+
     // Called when wrapping client socket, since there is only 1 Server SSL_CTX, it is passed as ref
     Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx, bool is_tls) : stream_{[is_tls, &ctx, &ssl_ctx] -> StreamVariant {
         if (is_tls) {

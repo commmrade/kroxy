@@ -1,6 +1,8 @@
 #pragma once
 #include <boost/asio/ip/tcp.hpp>
 
+class Stream;
+
 class Session {
 public:
     virtual ~Session() = default;
@@ -17,7 +19,7 @@ public:
 
     virtual void run() = 0;
 
-    virtual boost::asio::ip::tcp::socket &get_client() = 0;
+    virtual Stream &get_client() = 0;
 
-    virtual boost::asio::ip::tcp::socket &get_service() = 0;
+    virtual Stream &get_service() = 0;
 };

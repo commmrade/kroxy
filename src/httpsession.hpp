@@ -278,14 +278,6 @@ public:
         close_ses();
     }
 
-    void set_sni(const std::string_view hostname) {
-        auto &ref = service_sock_.get_tls_stream(service_sock_.inner_stream());
-        auto ret = SSL_set_tlsext_host_name(ref.native_handle(), hostname.data());
-        if (!ret) {
-            std::print("SSL_set_tlsext_host_name failed");
-        }
-    }
-
     void run() override {
         client_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::server,
                                      [self = shared_from_this(), this](const boost::system::error_code &errc) {
@@ -334,12 +326,12 @@ public:
                                       });
     }
 
-    boost::asio::ip::tcp::socket &get_client() override {
-        return client_sock_.socket();
+    Stream &get_client() override {
+        return client_sock_;
     }
 
-    boost::asio::ip::tcp::socket &get_service() override {
-        return service_sock_.socket();
+    Stream &get_service() override {
+        return service_sock_;
     }
 
 private:

@@ -117,13 +117,7 @@ private:
         service_sock_.socket().close();
     }
 
-    boost::asio::ip::tcp::socket &get_client() override {
-        return client_sock_.socket();
-    }
 
-    boost::asio::ip::tcp::socket &get_service() override {
-        return service_sock_.socket();
-    }
 
 public:
     explicit StreamSession(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
@@ -145,13 +139,12 @@ public:
         close_ses();
     }
 
-    void set_sni(const std::string_view hostname) {
-        auto &ref = service_sock_.get_tls_stream(service_sock_.inner_stream());
-        auto ret = SSL_set_tlsext_host_name(ref.native_handle(), hostname.data());
-        if (!ret) {
-            std::print("SSL_set_tlsext_host_name failed");
-            close_ses();
-        }
+    Stream &get_client() override {
+        return client_sock_;
+    }
+
+    Stream &get_service() override {
+        return service_sock_;
     }
 
     void run() override {

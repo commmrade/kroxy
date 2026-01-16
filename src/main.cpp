@@ -45,7 +45,8 @@ private:
                 ssl_clnt_ctx.set_verify_mode(boost::asio::ssl::verify_peer);
 
                 auto result =  std::make_shared<StreamSession>(ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
-                result->set_sni(host.host);
+                result->get_service().set_sni(host.host);
+
                 return result;
             } else {
                 boost::asio::ssl::context ssl_clnt_ctx{boost::asio::ssl::context_base::tls_client};
@@ -56,8 +57,10 @@ private:
                 boost::asio::ssl::context ssl_clnt_ctx{boost::asio::ssl::context_base::tls_client};
                 ssl_clnt_ctx.set_default_verify_paths();
                 ssl_clnt_ctx.set_verify_mode(boost::asio::ssl::verify_peer);
+
                 auto result = std::make_shared<HttpSession>(std::get<HttpConfig>(cfg_.server_config), ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
-                result->set_sni(host.host);
+                result->get_service().set_sni(host.host);
+
                 return result;
             } else {
                 boost::asio::ssl::context ssl_clnt_ctx{boost::asio::ssl::context_base::tls_client};
@@ -77,7 +80,7 @@ private:
     void do_accept() {
         auto host = choose_host();
         const std::shared_ptr<Session> session = make_session(host);
-        acceptor_.async_accept(session->get_client(), [session, this, host](const boost::system::error_code &errc) {
+        acceptor_.async_accept(session->get_client().socket(), [session, this, host](const boost::system::error_code &errc) {
             if (!errc) {
                 auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(ctx_);
                 resolver->async_resolve(host.host, std::to_string(host.port),
@@ -87,7 +90,7 @@ private:
                                     eps) {
                                             if (!errc) {
                                                 boost::asio::async_connect(
-                                                    session->get_service(), eps,
+                                                    session->get_service().socket(), eps,
                                                     [session](
                                                 const boost::system::error_code &errc,
                                                 [[maybe_unused]] const
@@ -116,7 +119,7 @@ private:
 
 public:
     Server(boost::asio::io_context &ctx, Config conf) : ctx_(ctx), acceptor_(ctx), cfg_(std::move(conf)) {
-        auto port = cfg_.get_port();
+        const auto port = cfg_.get_port();
         setup_socket(ctx, port);
 
         if (cfg_.is_tls_enabled()) {
