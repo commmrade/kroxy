@@ -6,7 +6,7 @@
 #include "session.hpp"
 #include <memory>
 #include "utils.hpp"
-
+#include "stream.hpp"
 
 class HttpSession : public Session, public std::enable_shared_from_this<HttpSession> {
 private:
@@ -21,32 +21,19 @@ private:
     void do_read_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         std::println("Read client headers {} bytes", bytes_tf);
         if (!errc) {
-
-
             auto &msg = request_p_.value().get();
             process_headers(msg);
             request_s_.emplace(msg);
 
-            if (is_service_tls_) {
-                boost::beast::http::async_write_header(
-                    service_sock_, *request_s_,
-                    [self = shared_from_this(), this](
-                const boost::system::error_code &errc,
-                [[maybe_unused]] std::size_t bytes_tf) {
-                        do_write_service_header(errc, bytes_tf);
-                    });
-            } else {
-                boost::beast::http::async_write_header(
-                    service_sock_.next_layer(), *request_s_,
-                    [self = shared_from_this(), this](
-                const boost::system::error_code &errc,
-                [[maybe_unused]] std::size_t bytes_tf) {
-                        do_write_service_header(errc, bytes_tf);
-                    });
-            }
+            service_sock_.async_write_header(*request_s_,
+                                             [self = shared_from_this(), this](
+                                         const boost::system::error_code &errc,
+                                         [[maybe_unused]] std::size_t bytes_tf) {
+                                                 do_write_service_header(errc, bytes_tf);
+                                             });
         } else {
             std::println(
-                     "Upstream read header error: {}", errc.message());
+                "Upstream read header error: {}", errc.message());
             close_ses();
         }
     }
@@ -54,7 +41,6 @@ private:
     void do_write_service_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         std::println("Write service headers {} bytes", bytes_tf);
         if (!errc) {
-
             if (!request_p_->is_done()) {
                 upstream_state_ = State::BODY;
 
@@ -77,37 +63,28 @@ private:
             request_p_->get().body().data = us_buf_.data();
             request_p_->get().body().more = !request_p_->is_done();
 
-            if (is_service_tls_) {
-                boost::beast::http::async_write(service_sock_, *request_s_,
-                                            [self = shared_from_this(), this](
-                                        const boost::system::error_code &errc, std::size_t bytes_tf) {
-                                                do_write_service_body(errc, bytes_tf);
-                                            });
-            } else {
-                boost::beast::http::async_write(service_sock_.next_layer(), *request_s_,
-                                            [self = shared_from_this(), this](
-                                        const boost::system::error_code &errc, std::size_t bytes_tf) {
-                                                do_write_service_body(errc, bytes_tf);
-                                            });
-            }
+            service_sock_.async_write_message(*request_s_,
+                                              [self = shared_from_this(), this](
+                                          const boost::system::error_code &errc, std::size_t bytes_tf) {
+                                                  do_write_service_body(errc, bytes_tf);
+                                              });
         } else {
-            if (is_client_tls_) {
+            if (client_sock_.is_tls()) {
                 std::println("Read client body failed: {}", errc.message());
                 close_ses();
             } else {
-                if (is_service_tls_) {
+                if (service_sock_.is_tls()) {
                     std::println("Read client body failed: {}", errc.message());
                     close_ses();
                 } else {
                     if (boost::beast::http::error::end_of_stream == errc) {
-                        service_sock_.next_layer().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+                        service_sock_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
                     } else {
                         std::println("Read client body failed: {}", errc.message());
                         close_ses();
                     }
                 }
             }
-
         }
     }
 
@@ -133,39 +110,20 @@ private:
                 request_p_.emplace();
                 upstream_buf_.clear();
 
-                if (is_client_tls_) {
-                    boost::beast::http::async_read_header(client_sock_, upstream_buf_, *request_p_,
-                                                     [self = shared_from_this(), this](
-                                                 const boost::system::error_code &errc,
-                                                 [[maybe_unused]] std::size_t bytes_tf) {
-                                                         do_read_client_header(errc, bytes_tf);
-                                                     });
-                } else {
-                    boost::beast::http::async_read_header(client_sock_.next_layer(), upstream_buf_, *request_p_,
-                                                     [self = shared_from_this(), this](
-                                                 const boost::system::error_code &errc,
-                                                 [[maybe_unused]] std::size_t bytes_tf) {
-                                                         do_read_client_header(errc, bytes_tf);
-                                                     });
-                }
-
-
+                client_sock_.async_read_header(upstream_buf_, *request_p_,
+                                               [self = shared_from_this(), this](
+                                           const boost::system::error_code &errc,
+                                           [[maybe_unused]] std::size_t bytes_tf) {
+                                                   do_read_client_header(errc, bytes_tf);
+                                               });
                 break;
             }
             case State::BODY: {
-                if (is_client_tls_) {
-                    boost::beast::http::async_read_some(client_sock_, upstream_buf_, *request_p_,
-                                                    [self = shared_from_this(), this](
-                                                const boost::system::error_code &errc, std::size_t bytes_tf) {
-                                                        do_read_client_body(errc, bytes_tf);
-                                                    });
-                } else {
-                    boost::beast::http::async_read_some(client_sock_.next_layer(), upstream_buf_, *request_p_,
-                                                    [self = shared_from_this(), this](
-                                                const boost::system::error_code &errc, std::size_t bytes_tf) {
-                                                        do_read_client_body(errc, bytes_tf);
-                                                    });
-                }
+                client_sock_.async_read_some_message(upstream_buf_, *request_p_,
+                                                     [self = shared_from_this(), this](
+                                                 const boost::system::error_code &errc, std::size_t bytes_tf) {
+                                                         do_read_client_body(errc, bytes_tf);
+                                                     });
                 break;
             }
             default: {
@@ -182,27 +140,15 @@ private:
             auto &msg = response_p_.value().get();
             response_s_.emplace(msg);
 
-            if (is_client_tls_) {
-                boost::beast::http::async_write_header(
-               client_sock_, *response_s_,
-               [self = shared_from_this(), this](
-           const boost::system::error_code &errc,
-           [[maybe_unused]] std::size_t bytes_tf) {
-                   do_write_client_header(errc, bytes_tf);
-               });
-            } else {
-                boost::beast::http::async_write_header(
-               client_sock_.next_layer(), *response_s_,
-               [self = shared_from_this(), this](
-           const boost::system::error_code &errc,
-           [[maybe_unused]] std::size_t bytes_tf) {
-                   do_write_client_header(errc, bytes_tf);
-               });
-            }
-
+            client_sock_.async_write_header(*response_s_,
+                                            [self = shared_from_this(), this](
+                                        const boost::system::error_code &errc,
+                                        [[maybe_unused]] std::size_t bytes_tf) {
+                                                do_write_client_header(errc, bytes_tf);
+                                            });
         } else {
             std::println(
-                    "Downstream read header error: {}", errc.message());
+                "Downstream read header error: {}", errc.message());
             close_ses();
         }
     }
@@ -233,31 +179,22 @@ private:
             response_p_->get().body().data = ds_buf_.data();
             response_p_->get().body().more = !response_p_->is_done();
 
-            if (is_client_tls_) {
-                boost::beast::http::async_write(client_sock_, *response_s_,
-                                            [self = shared_from_this(), this](
-                                        const boost::system::error_code &errc, std::size_t bytes_tf) {
-                                                do_write_client_body(errc, bytes_tf);
-                                            });
-            } else {
-                boost::beast::http::async_write(client_sock_.next_layer(), *response_s_,
-                                            [self = shared_from_this(), this](
-                                        const boost::system::error_code &errc, std::size_t bytes_tf) {
-                                                do_write_client_body(errc, bytes_tf);
-                                            });
-            }
-
+            client_sock_.async_write_message(*response_s_,
+                                             [self = shared_from_this(), this](
+                                         const boost::system::error_code &errc, std::size_t bytes_tf) {
+                                                 do_write_client_body(errc, bytes_tf);
+                                             });
         } else {
-            if (is_service_tls_) {
+            if (service_sock_.is_tls()) {
                 std::println("Read service body failed: {}", errc.message());
                 close_ses();
             } else {
-                if (is_client_tls_) {
+                if (client_sock_.is_tls()) {
                     std::println("Read service body failed: {}", errc.message());
                     close_ses();
                 } else {
                     if (boost::beast::http::error::end_of_stream == errc) {
-                        client_sock_.next_layer().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+                        client_sock_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
                     } else {
                         std::println("Read service body failed: {}", errc.message());
                         close_ses();
@@ -289,42 +226,21 @@ private:
                 response_p_.emplace();
                 downstream_buf_.clear();
 
-                if (is_service_tls_) {
-                    boost::beast::http::async_read_header(service_sock_, downstream_buf_, *response_p_,
-                                                      [self = shared_from_this(), this](
-                                                  const boost::system::error_code &errc,
-                                                  [[maybe_unused]] std::size_t bytes_tf) {
-                                                          do_read_service_header(errc, bytes_tf);
-                                                      });
-                } else {
-                    boost::beast::http::async_read_header(service_sock_.next_layer(), downstream_buf_, *response_p_,
-                                                      [self = shared_from_this(), this](
-                                                  const boost::system::error_code &errc,
-                                                  [[maybe_unused]] std::size_t bytes_tf) {
-                                                          do_read_service_header(errc, bytes_tf);
-                                                      });
-                }
-
-
+                service_sock_.async_read_header(downstream_buf_, *response_p_,
+                                                [self = shared_from_this(), this](
+                                            const boost::system::error_code &errc,
+                                            [[maybe_unused]] std::size_t bytes_tf) {
+                                                    do_read_service_header(errc, bytes_tf);
+                                                });
                 break;
             }
             case State::BODY: {
-
-                if (is_service_tls_) {
-                    boost::beast::http::async_read_some(service_sock_, downstream_buf_, *response_p_,
+                service_sock_.async_read_some_message(downstream_buf_, *response_p_,
                                                       [self = shared_from_this(), this](
                                                   const boost::system::error_code &errc,
                                                   [[maybe_unused]] std::size_t bytes_tf) {
                                                           do_read_service_body(errc, bytes_tf);
                                                       });
-                } else {
-                    boost::beast::http::async_read_some(service_sock_.next_layer(), downstream_buf_, *response_p_,
-                                                      [self = shared_from_this(), this](
-                                                  const boost::system::error_code &errc,
-                                                  [[maybe_unused]] std::size_t bytes_tf) {
-                                                          do_read_service_body(errc, bytes_tf);
-                                                      });
-                }
                 break;
             }
             default: {
@@ -335,19 +251,17 @@ private:
     }
 
     void close_ses() {
-        client_sock_.next_layer().close();
-        service_sock_.next_layer().close();
+        client_sock_.socket().close();
+        service_sock_.socket().close();
     }
 
 public:
     HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
                 std::unique_ptr<boost::asio::ssl::context> ssl_clnt_ctx, bool is_client_tls, bool is_service_tls)
         : cfg_(cfg),
-          client_sock_(ctx, ssl_srv_ctx),
-          is_client_tls_(is_client_tls),
+          client_sock_(ctx, ssl_srv_ctx, is_client_tls),
           ssl_clnt_ctx_(std::move(ssl_clnt_ctx)),
-          service_sock_(ctx, *ssl_clnt_ctx_),
-          is_service_tls_(is_service_tls) {
+          service_sock_(ctx, *ssl_clnt_ctx_, is_service_tls) {
     }
 
     // cfg_(cfg), client_sock_(ctx), service_sock_(ctx)}
@@ -365,56 +279,64 @@ public:
     }
 
     void run() override {
-        if (is_client_tls_) {
-            client_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::server, [self = shared_from_this(), this](const boost::system::error_code& errc) {
-                if (!errc) {
-                    auto ds = std::make_shared<boost::asio::steady_timer>(
-                                                    service_sock_.get_executor());
-                    ds->expires_after(std::chrono::seconds(1));
-                    ds->async_wait(
-                        [self = self, this, ds](const boost::system::error_code &errc) {
-                            if (!errc) {
-                                std::println("client Successful handshake");
-                                do_upstream();
-                            }
-                        });
-                }  else {
-                    std::println("Client handshake failed: {}", errc.message());
-                }
-            });
-        } else {
-            do_upstream();
+        client_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::server,
+                                     [self = shared_from_this(), this](const boost::system::error_code &errc) {
+                                         if (!errc) {
+                                             if (client_sock_.is_tls()) {
+                                                 auto ds = std::make_shared<boost::asio::steady_timer>(
+                                                     service_sock_.get_executor());
+                                                 ds->expires_after(std::chrono::seconds(1));
+                                                 ds->async_wait(
+                                                     [self = self, this, ds](const boost::system::error_code &errc) {
+                                                         if (!errc) {
+                                                             std::println("client Successful handshake");
+                                                             do_upstream();
+                                                         }
+                                                     });
+                                             } else {
+                                                 do_upstream();
+                                             }
+                                         } else {
+                                             std::println("Client handshake failed: {}", errc.message());
+                                         }
+                                     });
+
+        if (service_sock_.is_tls()) {
+            auto &ref = service_sock_.get_tls_stream(service_sock_.inner_stream());
+            SSL_set_tlsext_host_name(ref.native_handle(), "google.com"); // TODO: get rid of
         }
 
-        if (is_service_tls_) {
-            SSL_set_tlsext_host_name(service_sock_.native_handle(), "google.com"); // TODO: get rid of
-            service_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::client, [self = shared_from_this(), this](const boost::system::error_code& errc) {
-                if (!errc) {
-                    auto ds = std::make_shared<boost::asio::steady_timer>(
-                                                  service_sock_.get_executor());
-              ds->expires_after(std::chrono::seconds(1));
-              ds->async_wait(
-                  [self = self, this, ds](const boost::system::error_code &errc) {
-                      if (!errc) {
-                          std::println("service Successful handshake");
-                          do_downstream();
-                      }
-                  });
-                } else {
-                    std::println("Service handshake failed: {}", errc.message());
-                }
-            });
-        } else {
-            do_downstream();
-        }
+
+        // do_downstream();
+        service_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::client,
+                                      [self = shared_from_this(), this](const boost::system::error_code &errc) {
+                                          if (!errc) {
+                                              if (service_sock_.is_tls()) {
+                                                  auto ds = std::make_shared<boost::asio::steady_timer>(
+                                                      service_sock_.get_executor());
+                                                  ds->expires_after(std::chrono::seconds(1));
+                                                  ds->async_wait(
+                                                      [self = self, this, ds](const boost::system::error_code &errc) {
+                                                          if (!errc) {
+                                                              std::println("service Successful handshake");
+                                                              do_downstream();
+                                                          }
+                                                      });
+                                              } else {
+                                                  do_downstream();
+                                              }
+                                          } else {
+                                              std::println("Service handshake failed: {}", errc.message());
+                                          }
+                                      });
     }
 
     boost::asio::ip::tcp::socket &get_client() override {
-        return client_sock_.next_layer();
+        return client_sock_.socket();
     }
 
     boost::asio::ip::tcp::socket &get_service() override {
-        return service_sock_.next_layer();
+        return service_sock_.socket();
     }
 
 private:
@@ -425,12 +347,14 @@ private:
 
     HttpConfig &cfg_;
 
-    boost::asio::ssl::stream<boost::asio::ip::tcp::socket> client_sock_;
-    bool is_client_tls_{false};
+    // boost::asio::ssl::stream<boost::asio::ip::tcp::socket> client_sock_;
+    // bool is_client_tls_{false};
+    Stream client_sock_;
 
     std::unique_ptr<boost::asio::ssl::context> ssl_clnt_ctx_;
-    boost::asio::ssl::stream<boost::asio::ip::tcp::socket> service_sock_;
-    bool is_service_tls_{false};
+    // boost::asio::ssl::stream<boost::asio::ip::tcp::socket> service_sock_;
+    // bool is_service_tls_{false};
+    Stream service_sock_;
 
 
     boost::beast::flat_buffer upstream_buf_;

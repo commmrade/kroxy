@@ -27,10 +27,38 @@ public:
         }, stream_);
     }
 
+    template<typename Serializer, typename CompletionToken>
+    void async_write_message(Serializer& sr, CompletionToken&& token) {
+        std::visit([&sr, token = std::forward<CompletionToken>(token)](auto&& stream) mutable {
+            boost::beast::http::async_write(stream, sr, std::move(token));
+        }, stream_);
+    }
+
+    template<typename Serializer, typename CompletionToken>
+    void async_write_header(Serializer& sr, CompletionToken &&token) {
+        std::visit([&sr, token = std::forward<CompletionToken>(token)](auto &&stream) mutable {
+            boost::beast::http::async_write_header(stream, sr, std::move(token));
+        }, stream_);
+    }
+
     template<typename MutableBuffer, typename CompletionToken>
     void async_read_some(const MutableBuffer &buf, CompletionToken &&token) {
         std::visit([&buf, token = std::forward<CompletionToken>(token)](auto &&stream) mutable {
             stream.async_read_some(buf, std::move(token));
+        }, stream_);
+    }
+
+    template <typename DynamicBuffer, typename Parser, typename CompletionToken>
+    void async_read_some_message(DynamicBuffer& buf, Parser& ps, CompletionToken &&token) {
+        std::visit([&buf, &ps, token = std::forward<CompletionToken>(token)](auto&& stream) mutable {
+            boost::beast::http::async_read_some(stream, buf, ps, std::move(token));
+        }, stream_);
+    }
+
+    template <typename DynamicBuffer, typename Parser, typename CompletionToken>
+    void async_read_header(DynamicBuffer& buf, Parser& ps, CompletionToken &&token) {
+        std::visit([&buf, &ps, token = std::forward<CompletionToken>(token)](auto&& stream) mutable {
+            boost::beast::http::async_read_header(stream, buf, ps, std::move(token));
         }, stream_);
     }
 

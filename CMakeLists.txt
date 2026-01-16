@@ -13,12 +13,7 @@ pkg_check_modules(LIBURING REQUIRED liburing)
 # json-cpp
 find_package(jsoncpp REQUIRED)
 
-add_executable(kroxy main.cpp
-        httpsession.hpp
-        streamsession.hpp
-        session.hpp
-        stream.hpp
-        utils.hpp)
+add_executable(kroxy main.cpp)
 
 target_include_directories(kroxy PRIVATE
     ${LIBURING_INCLUDE_DIRS}
