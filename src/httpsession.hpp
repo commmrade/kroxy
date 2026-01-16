@@ -262,14 +262,6 @@ public:
         : cfg_(cfg),
           client_sock_(ctx, ssl_srv_ctx, is_client_tls),
           service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
-        if (service_sock_.is_tls()) {
-            auto &ref = service_sock_.get_tls_stream(service_sock_.inner_stream());
-            auto ret = SSL_set_tlsext_host_name(ref.native_handle(), host.host.c_str());
-            if (!ret) {
-                std::print("SSL_set_tlsext_host_name failed");
-                close_ses();
-            }
-        }
     }
 
     // cfg_(cfg), client_sock_(ctx), service_sock_(ctx)}

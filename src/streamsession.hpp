@@ -131,9 +131,6 @@ public:
                            bool is_service_tls)
         : client_sock_(ctx, ssl_srv_ctx, is_client_tls),
           service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
-        if (service_sock_.is_tls()) {
-
-        }
     }
 
     StreamSession(const StreamSession &) = delete;
