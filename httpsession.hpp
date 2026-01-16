@@ -1,8 +1,11 @@
+#pragma once
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/beast.hpp>
 #include <print>
-
+#include "session.hpp"
+#include <memory>
+#include "utils.hpp"
 
 
 class HttpSession : public Session, public std::enable_shared_from_this<HttpSession> {
