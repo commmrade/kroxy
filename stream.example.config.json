@@ -10,7 +10,7 @@
   "stream": {
     "port": 8080,
     "timeout_ms": 500,
-    "pass_to": "google-tls",
+    "pass_to": "google",
 
     "tls_enabled": true,
     "tls_cert_path": "../tls/certificate.crt",

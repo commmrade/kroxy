@@ -20,6 +20,15 @@ public:
         boost::asio::ip::tcp::socket> >;
     using ssl_stream = boost::asio::ssl::stream<boost::asio::ip::tcp::socket>;
 
+    template<typename CompletionToken>
+    void async_shutdown(CompletionToken&& token) {
+        std::visit([token = std::forward<CompletionToken>(token), this]<typename Stream>(Stream&& stream) mutable {
+            if constexpr (is_ssl_stream_v<Stream>) {
+                stream.async_shutdown(std::move(token));
+            }
+        }, stream_);
+    }
+
     template<typename ConstBuffer, typename CompletionToken>
     void async_write(const ConstBuffer &buf, CompletionToken &&token) {
         std::visit([&buf, token = std::forward<CompletionToken>(token)](auto &&stream) mutable {
@@ -92,18 +101,18 @@ public:
     }
 
 
-    Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx, bool is_tls) : stream_{
-        boost::asio::ip::tcp::socket{ctx}
-    }, ctx_(ssl_ctx) {
+    Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx, bool is_tls) : stream_{[is_tls, &ctx, &ssl_ctx] -> StreamVariant {
         if (is_tls) {
-            stream_ = ssl_stream{ctx, ssl_ctx};
+            return ssl_stream{ctx, ssl_ctx};
         } else {
-            stream_ = boost::asio::ip::tcp::socket{ctx};
+            return boost::asio::ip::tcp::socket{ctx};
         }
+    }()}, ctx_(ssl_ctx) {
     }
 
 private:
     StreamVariant stream_;
+
     boost::asio::ssl::context &ctx_;
 
 public:

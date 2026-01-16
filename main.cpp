@@ -57,11 +57,11 @@ private:
                 ssl_clnt_ctx->set_default_verify_paths();
                 ssl_clnt_ctx->set_verify_mode(boost::asio::ssl::verify_peer);
 
-                return std::make_shared<HttpSession>(std::get<HttpConfig>(cfg_.server_config), ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
+                return std::make_shared<HttpSession>(std::get<HttpConfig>(cfg_.server_config), host, ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
             } else {
                 auto ssl_clnt_ctx = std::make_unique<boost::asio::ssl::context>(
                 boost::asio::ssl::context_base::tls_client);
-                return std::make_shared<HttpSession>(std::get<HttpConfig>(cfg_.server_config), ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
+                return std::make_shared<HttpSession>(std::get<HttpConfig>(cfg_.server_config), host, ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
             }
         }
     }

@@ -19,7 +19,6 @@ private:
 
     // client to service
     void do_read_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        std::println("Read client headers {} bytes", bytes_tf);
         if (!errc) {
             auto &msg = request_p_.value().get();
             process_headers(msg);
@@ -39,7 +38,6 @@ private:
     }
 
     void do_write_service_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        std::println("Write service headers {} bytes", bytes_tf);
         if (!errc) {
             if (!request_p_->is_done()) {
                 upstream_state_ = State::BODY;
@@ -57,7 +55,6 @@ private:
     }
 
     void do_read_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        std::println("Read client body {} bytes", bytes_tf);
         if (!errc) {
             request_p_->get().body().size = us_buf_.size() - request_p_->get().body().size;
             request_p_->get().body().data = us_buf_.data();
@@ -69,27 +66,16 @@ private:
                                                   do_write_service_body(errc, bytes_tf);
                                               });
         } else {
-            if (client_sock_.is_tls()) {
+            if (boost::beast::http::error::end_of_stream == errc && (!client_sock_.is_tls() && !service_sock_.is_tls())) {
+                service_sock_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+            } else {
                 std::println("Read client body failed: {}", errc.message());
                 close_ses();
-            } else {
-                if (service_sock_.is_tls()) {
-                    std::println("Read client body failed: {}", errc.message());
-                    close_ses();
-                } else {
-                    if (boost::beast::http::error::end_of_stream == errc) {
-                        service_sock_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
-                    } else {
-                        std::println("Read client body failed: {}", errc.message());
-                        close_ses();
-                    }
-                }
             }
         }
     }
 
     void do_write_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        std::println("Write service {} bytes", bytes_tf);
         if (errc == boost::beast::http::error::need_buffer || !errc) {
             if (request_p_->is_done() && request_s_->is_done()) {
                 // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on parser or serializer)
@@ -101,6 +87,7 @@ private:
             do_upstream();
         } else {
             std::println("Write service body failed: {}", errc.message());
+            close_ses();
         }
     }
 
@@ -135,7 +122,6 @@ private:
     // service to client
 
     void do_read_service_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        std::println("Read service header {} bytes", bytes_tf);
         if (!errc) {
             auto &msg = response_p_.value().get();
             response_s_.emplace(msg);
@@ -154,7 +140,6 @@ private:
     }
 
     void do_write_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        std::println("Write client header {} bytes", bytes_tf);
         if (!errc) {
             // Now we need to start reading the body, considering we may have body bytes in upstream_buf_
             if (!response_p_->is_done()) {
@@ -173,7 +158,6 @@ private:
     }
 
     void do_read_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        std::println("Read service body {} bytes", bytes_tf);
         if (!errc) {
             response_p_->get().body().size = ds_buf_.size() - response_p_->get().body().size;
             response_p_->get().body().data = ds_buf_.data();
@@ -185,21 +169,11 @@ private:
                                                  do_write_client_body(errc, bytes_tf);
                                              });
         } else {
-            if (service_sock_.is_tls()) {
+            if (boost::beast::http::error::end_of_stream == errc && (!service_sock_.is_tls() && !client_sock_.is_tls())) {
+                client_sock_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+            } else {
                 std::println("Read service body failed: {}", errc.message());
                 close_ses();
-            } else {
-                if (client_sock_.is_tls()) {
-                    std::println("Read service body failed: {}", errc.message());
-                    close_ses();
-                } else {
-                    if (boost::beast::http::error::end_of_stream == errc) {
-                        client_sock_.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
-                    } else {
-                        std::println("Read service body failed: {}", errc.message());
-                        close_ses();
-                    }
-                }
             }
         }
     }
@@ -216,6 +190,7 @@ private:
             do_downstream();
         } else {
             std::println("Write client body failed: {}", errc.message());
+            close_ses();
         }
     }
 
@@ -250,15 +225,20 @@ private:
         }
     }
 
+    void fail_close() {
+        // TODO
+    }
+
+
     void close_ses() {
         client_sock_.socket().close();
         service_sock_.socket().close();
     }
 
 public:
-    HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+    HttpSession(HttpConfig &cfg, Host host, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
                 std::unique_ptr<boost::asio::ssl::context> ssl_clnt_ctx, bool is_client_tls, bool is_service_tls)
-        : cfg_(cfg),
+        : cfg_(cfg), host_(std::move(host)),
           client_sock_(ctx, ssl_srv_ctx, is_client_tls),
           ssl_clnt_ctx_(std::move(ssl_clnt_ctx)),
           service_sock_(ctx, *ssl_clnt_ctx_, is_service_tls) {
@@ -285,7 +265,7 @@ public:
                                              if (client_sock_.is_tls()) {
                                                  auto ds = std::make_shared<boost::asio::steady_timer>(
                                                      service_sock_.get_executor());
-                                                 ds->expires_after(std::chrono::seconds(1));
+                                                 ds->expires_after(std::chrono::seconds(1)); // TODO: HOW TO AVOID THIS
                                                  ds->async_wait(
                                                      [self = self, this, ds](const boost::system::error_code &errc) {
                                                          if (!errc) {
@@ -298,16 +278,18 @@ public:
                                              }
                                          } else {
                                              std::println("Client handshake failed: {}", errc.message());
+                                             close_ses();
                                          }
                                      });
 
         if (service_sock_.is_tls()) {
             auto &ref = service_sock_.get_tls_stream(service_sock_.inner_stream());
-            SSL_set_tlsext_host_name(ref.native_handle(), "google.com"); // TODO: get rid of
+            auto ret = SSL_set_tlsext_host_name(ref.native_handle(), host_.host.c_str());
+            if (!ret) {
+                std::print("SSL_set_tlsext_host_name failed");
+                close_ses();
+            }
         }
-
-
-        // do_downstream();
         service_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::client,
                                       [self = shared_from_this(), this](const boost::system::error_code &errc) {
                                           if (!errc) {
@@ -327,6 +309,7 @@ public:
                                               }
                                           } else {
                                               std::println("Service handshake failed: {}", errc.message());
+                                              close_ses();
                                           }
                                       });
     }
@@ -346,6 +329,7 @@ private:
     };
 
     HttpConfig &cfg_;
+    Host host_;
 
     // boost::asio::ssl::stream<boost::asio::ip::tcp::socket> client_sock_;
     // bool is_client_tls_{false};

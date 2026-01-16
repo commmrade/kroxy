@@ -112,7 +112,7 @@ private:
 
     void close_ses() {
         client_sock_.socket().close();
-        // TODO: MAYBE MAKE CLOSE INSIDE STREAm, SO I CAN DECIDE IF I SHOULD SHUTDOWN OR I SHALL NOT
+        // TODO: proper shutdown
         service_sock_.socket().close();
     }
 
