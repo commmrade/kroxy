@@ -31,7 +31,7 @@ private:
                                                  do_write_service_header(errc, bytes_tf);
                                              });
         } else {
-            if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
+            if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
                 if (service_sock_.is_tls()) {
                     service_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
                     });
@@ -74,7 +74,7 @@ private:
                                                   do_write_service_body(errc, bytes_tf);
                                               });
         } else {
-            if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc {
+            if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
                 if (service_sock_.is_tls()) {
                     service_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
                     });
@@ -146,7 +146,7 @@ private:
                                                 do_write_client_header(errc, bytes_tf);
                                             });
         } else {
-            if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
+            if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
                 if (client_sock_.is_tls()) {
                     client_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
                     });
@@ -190,7 +190,7 @@ private:
                                                  do_write_client_body(errc, bytes_tf);
                                              });
         } else {
-            if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
+            if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
                 if (client_sock_.is_tls()) {
                     client_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
                     });
