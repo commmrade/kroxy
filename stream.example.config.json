@@ -1,13 +1,19 @@
 {
   "servers": {
-    "top": [{ "host": "google.com", "port": 80 }],
+    "google": [{ "host": "google.com", "port": 80 }],
+    "google-tls": [{ "host": "google.com", "port": 443, "tls_enabled": true }],
     "python": [{ "host":  "127.0.0.1", "port":  9999}],
+    "httpbin": [{ "host":  "httpbin.org", "port":  80}],
     "fuck_it": [{ "host": "odnoklassniki.ru", "port": 80 }]
   },
 
   "stream": {
     "port": 8080,
     "timeout_ms": 500,
-    "pass_to": "top"
+    "pass_to": "google",
+
+    "tls_enabled": true,
+    "tls_cert_path": "../tls/certificate.crt",
+    "tls_key_path": "../tls/private.key"
   }
 }

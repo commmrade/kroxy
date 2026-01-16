@@ -1,9 +1,10 @@
 {
   "servers": {
-    "top": [{ "host": "google.com", "port": 80 }],
+    "google": [{ "host": "google.com", "port": 80 }],
+    "google-tls": [{ "host": "google.com", "port": 443, "tls_enabled": true }],
     "fuck_it": [{ "host": "odnoklassniki.ru", "port": 80 }],
     "python": [{ "host":  "127.0.0.1", "port":  9999}],
-    "httpbin": [{ "host":  "httpbin.org", "port":  80}]
+    "httpbin": [{ "host":  "httpbin.org", "port":  80, "tls_enabled": false }]
   },
 
   "http": {
@@ -12,7 +13,12 @@
       "Host": "$host",
       "X-Real-IP": "$addr"
     },
+
+    "tls_enabled": false,
+    "tls_cert_path": "../tls/certificate.crt",
+    "tls_key_path": "../tls/private.key",
+
     "timeout_ms": 5000,
-    "pass_to": "httpbin"
+    "pass_to": "google"
   }
 }
