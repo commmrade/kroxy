@@ -264,15 +264,9 @@ public:
           service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
     }
 
-    // cfg_(cfg), client_sock_(ctx), service_sock_(ctx)}
-
     HttpSession(const HttpSession &) = delete;
 
-    HttpSession(HttpSession &&) = delete;
-
     HttpSession &operator=(const HttpSession &) = delete;
-
-    HttpSession &operator=(HttpSession &&) = delete;
 
     ~HttpSession() override {
         close_ses();
@@ -285,7 +279,7 @@ public:
                                              if (client_sock_.is_tls()) {
                                                  auto ds = std::make_shared<boost::asio::steady_timer>(
                                                      service_sock_.get_executor());
-                                                 ds->expires_after(std::chrono::milliseconds(200));
+                                                 ds->expires_after(std::chrono::milliseconds(300));
                                                  ds->async_wait(
                                                      [self = self, this, ds](const boost::system::error_code &errc) {
                                                          if (!errc) {
@@ -308,7 +302,7 @@ public:
                                               if (service_sock_.is_tls()) {
                                                   auto ds = std::make_shared<boost::asio::steady_timer>(
                                                       service_sock_.get_executor());
-                                                  ds->expires_after(std::chrono::milliseconds(200));
+                                                  ds->expires_after(std::chrono::milliseconds(300));
                                                   ds->async_wait(
                                                       [self = self, this, ds](const boost::system::error_code &errc) {
                                                           if (!errc) {
@@ -340,25 +334,22 @@ private:
         BODY // Need to switch back to headers after whole body is written -> use Content-Length for this i suppose
     };
 
+    // To be used by algorithms to process headers
     HttpConfig &cfg_;
 
     Stream client_sock_;
     Stream service_sock_;
 
-
-    boost::beast::flat_buffer upstream_buf_;
-
-    std::array<char, BUF_SIZE> us_buf_{};
-
+    // These are optionals since you need to 'reset' it after handling each HTTP request
     std::optional<boost::beast::http::request_parser<boost::beast::http::buffer_body> > request_p_;
     std::optional<boost::beast::http::request_serializer<boost::beast::http::buffer_body> > request_s_;
+    boost::beast::flat_buffer upstream_buf_;
+    std::array<char, BUF_SIZE> us_buf_{};
     State upstream_state_{};
-
-    boost::beast::flat_buffer downstream_buf_;
-
-    std::array<char, BUF_SIZE> ds_buf_{};
 
     std::optional<boost::beast::http::response_parser<boost::beast::http::buffer_body> > response_p_;
     std::optional<boost::beast::http::response_serializer<boost::beast::http::buffer_body> > response_s_;
+    boost::beast::flat_buffer downstream_buf_;
+    std::array<char, BUF_SIZE> ds_buf_{};
     State downstream_state_{};
 };

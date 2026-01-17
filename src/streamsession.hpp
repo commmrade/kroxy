@@ -113,7 +113,6 @@ private:
 
     void close_ses() {
         client_sock_.socket().close();
-        // TODO: proper shutdown
         service_sock_.socket().close();
     }
 
@@ -129,11 +128,7 @@ public:
 
     StreamSession(const StreamSession &) = delete;
 
-    StreamSession(StreamSession &&) = delete;
-
     StreamSession &operator=(const StreamSession &) = delete;
-
-    StreamSession &operator=(StreamSession &&) = delete;
 
     ~StreamSession() override {
         close_ses();
