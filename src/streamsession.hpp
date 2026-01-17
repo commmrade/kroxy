@@ -1,6 +1,7 @@
 #pragma once
 #include "stream.hpp"
 #include "utils.hpp"
+#include <boost/asio/experimental/parallel_group.hpp>
 
 class StreamSession : public Session, public std::enable_shared_from_this<StreamSession> {
 private:
@@ -143,50 +144,34 @@ public:
     }
 
     void run() override {
-        client_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::server,
-                                     [self = shared_from_this(), this](const boost::system::error_code &errc) {
-                                         if (!errc) {
-                                             if (client_sock_.is_tls()) {
-                                                 auto ds = std::make_shared<boost::asio::steady_timer>(
-                                                     service_sock_.get_executor());
-                                                 ds->expires_after(std::chrono::milliseconds(200));
-                                                 ds->async_wait(
-                                                     [self = self, this, ds](const boost::system::error_code &errc) {
-                                                         if (!errc) {
-                                                             std::println("Successful handshake");
-                                                             do_upstream();
-                                                         }
-                                                     });
-                                             } else {
-                                                 do_upstream();
-                                             }
-                                         } else {
-                                             std::println("Error client handshake: {}", errc.message());
-                                         }
-                                     });
+        auto self = shared_from_this();
 
-        service_sock_.async_handshake(boost::asio::ssl::stream_base::handshake_type::client,
-                                      [self = shared_from_this(), this](const boost::system::error_code &errc) {
-                                          if (!errc) {
-                                              if (service_sock_.is_tls()) {
-                                                  auto ds = std::make_shared<boost::asio::steady_timer>(
-                                                      service_sock_.get_executor());
-                                                  ds->expires_after(std::chrono::milliseconds(200));
-                                                  ds->async_wait(
-                                                      [self = self, this, ds](const boost::system::error_code &errc) {
-                                                          if (!errc) {
-                                                              std::println("Successful handshake");
-                                                              do_downstream();
-                                                          }
-                                                      });
-                                              } else {
-                                                  do_downstream();
-                                              }
-                                          } else {
-                                              std::println("Service handshake failed: {}", errc.message());
-                                          }
-                                      });
+        boost::asio::experimental::make_parallel_group(
+            // client handshake
+            [&](auto token) {
+                return client_sock_.async_handshake(boost::asio::ssl::stream_base::server, token);
+            },
+            // service handshake
+            [&](auto token) {
+                return service_sock_.async_handshake(boost::asio::ssl::stream_base::client, token);
+            }
+        ).async_wait(
+            boost::asio::experimental::wait_for_all(),
+            [self, this](
+                std::array<std::size_t, 2> /*completion_order*/,
+                boost::system::error_code ec_client,
+                boost::system::error_code ec_service
+            ) {
+                if (ec_client) { std::println("Client handshake failed: {}", ec_client.message()); return; }
+                if (ec_service) { std::println("Service handshake failed: {}", ec_service.message()); return; }
+                std::println("Both TLS handshakes successful");
+
+                do_upstream();
+                do_downstream();
+            }
+        );
     }
+
 
 private:
     Stream client_sock_;

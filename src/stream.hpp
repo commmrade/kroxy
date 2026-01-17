@@ -77,13 +77,32 @@ public:
         }, stream_);
     }
 
+    class initiate_async_handshake_empty
+    {
+    public:
+        explicit initiate_async_handshake_empty()
+        {
+        }
+        template <typename HandshakeHandler>
+        void operator()(HandshakeHandler&& handler,
+            [[maybe_unused]] boost::asio::ssl::stream_base::handshake_type type) const
+        {
+            std::forward<HandshakeHandler>(handler)(boost::system::error_code{});
+        }
+
+    private:
+
+    };
+
     template<typename CompletionToken>
-    void async_handshake(boost::asio::ssl::stream_base::handshake_type type, CompletionToken &&token) {
-        std::visit([&type, token = std::forward<CompletionToken>(token)]<typename Stream>(Stream &stream) mutable {
+    auto async_handshake(boost::asio::ssl::stream_base::handshake_type type, CompletionToken &&token) {
+        return std::visit([&type, token = std::forward<CompletionToken>(token)]<typename Stream>(Stream &stream) mutable {
             if constexpr (is_ssl_stream_v<Stream>) {
-                stream.async_handshake(type, std::move(token));
+                return stream.async_handshake(type, std::move(token));
             } else {
-                std::invoke(std::move(token), boost::system::error_code{});
+                return boost::asio::async_initiate<CompletionToken,
+                  void (boost::system::error_code)>(
+                    initiate_async_handshake_empty(), token, type);
             }
         }, stream_);
     }
