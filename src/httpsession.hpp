@@ -1,8 +1,10 @@
 #pragma once
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/asio/experimental/parallel_group.hpp>
 #include <boost/beast.hpp>
 #include <print>
+#include "config.hpp"
 #include "session.hpp"
 #include <memory>
 #include "utils.hpp"
@@ -273,8 +275,6 @@ public:
     }
 
     void run() override {
-        auto self = shared_from_this();
-
         boost::asio::experimental::make_parallel_group(
             // client handshake
             [&](auto token) {
@@ -286,7 +286,7 @@ public:
             }
         ).async_wait(
             boost::asio::experimental::wait_for_all(),
-            [self, this](
+            [self = shared_from_this(), this](
                 std::array<std::size_t, 2> /*completion_order*/,
                 boost::system::error_code ec_client,
                 boost::system::error_code ec_service
