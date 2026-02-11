@@ -115,8 +115,8 @@ private:
     }
 
 public:
-    explicit StreamSession(StreamConfig& cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
-                           boost::asio::ssl::context&& ssl_clnt_ctx, bool is_client_tls,
+    explicit StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+                           boost::asio::ssl::context &&ssl_clnt_ctx, bool is_client_tls,
                            bool is_service_tls)
         : Session(ctx, ssl_srv_ctx, std::move(ssl_clnt_ctx), is_service_tls, is_client_tls), cfg_(cfg) {
         if (!cfg_.file_log.empty()) {
@@ -128,15 +128,62 @@ public:
 
     StreamSession &operator=(const StreamSession &) = delete;
 
+    StreamSession(StreamSession &&) = delete;
+
+    StreamSession &operator=(StreamSession &&) = delete;
+
     ~StreamSession() override {
+        log();
+    }
+
+    void run() override {
+        auto self = shared_from_this();
+
+        boost::asio::experimental::make_parallel_group(
+            // client handshake
+            [&](auto token) {
+                return client_sock_.async_handshake(boost::asio::ssl::stream_base::server, token);
+            },
+            // service handshake
+            [&](auto token) {
+                return service_sock_.async_handshake(boost::asio::ssl::stream_base::client, token);
+            }
+        ).async_wait(
+            boost::asio::experimental::wait_for_all(),
+            [self, this](
+        std::array<std::size_t, 2> /*completion_order*/,
+        boost::system::error_code ec_client,
+        boost::system::error_code ec_service
+    ) {
+                if (ec_client) {
+                    std::println("Client handshake failed: {}", ec_client.message());
+                    return;
+                }
+                if (ec_service) {
+                    std::println("Service handshake failed: {}", ec_service.message());
+                    return;
+                }
+                std::println("Both TLS handshakes successful");
+
+                do_upstream();
+                do_downstream();
+            }
+        );
+    }
+
+
+
+private:
+    void log() {
         if (logger_.has_value()) {
             std::string log_msg = cfg_.format_log.format;
-            for (const auto var : cfg_.format_log.used_vars) {
+            for (const auto var: cfg_.format_log.used_vars) {
                 switch (var) {
                     case LogFormat::Variable::CLIENT_ADDR: {
                         const std::string var_name = '$' + LogFormat::variable_to_string(var);
                         auto var_pos = log_msg.find(var_name);
-                        log_msg.replace(var_pos, var_name.size(), client_sock_.socket().local_endpoint().address().to_string());
+                        log_msg.replace(var_pos, var_name.size(),
+                                        client_sock_.socket().local_endpoint().address().to_string());
                         break;
                     }
                     case LogFormat::Variable::BYTES_SENT: {
@@ -155,38 +202,7 @@ public:
         }
     }
 
-    void run() override {
-        auto self = shared_from_this();
-
-        boost::asio::experimental::make_parallel_group(
-            // client handshake
-            [&](auto token) {
-                return client_sock_.async_handshake(boost::asio::ssl::stream_base::server, token);
-            },
-            // service handshake
-            [&](auto token) {
-                return service_sock_.async_handshake(boost::asio::ssl::stream_base::client, token);
-            }
-        ).async_wait(
-            boost::asio::experimental::wait_for_all(),
-            [self, this](
-                std::array<std::size_t, 2> /*completion_order*/,
-                boost::system::error_code ec_client,
-                boost::system::error_code ec_service
-            ) {
-                if (ec_client) { std::println("Client handshake failed: {}", ec_client.message()); return; }
-                if (ec_service) { std::println("Service handshake failed: {}", ec_service.message()); return; }
-                std::println("Both TLS handshakes successful");
-
-                do_upstream();
-                do_downstream();
-            }
-        );
-    }
-
-
-private:
-    StreamConfig& cfg_;
+    StreamConfig &cfg_;
 
     boost::asio::streambuf upstream_buf_;
     boost::asio::streambuf downstream_buf_;

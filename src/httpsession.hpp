@@ -276,29 +276,7 @@ public:
     HttpSession &operator=(const HttpSession &) = delete;
 
     ~HttpSession() override {
-        if (logger_.has_value()) {
-            std::string log_msg = cfg_.format_log.format;
-            for (const auto var : cfg_.format_log.used_vars) {
-                switch (var) {
-                    case LogFormat::Variable::CLIENT_ADDR: {
-                        const std::string var_name = '$' + LogFormat::variable_to_string(var);
-                        const auto var_pos = log_msg.find(var_name);
-                        log_msg.replace(var_pos, var_name.size(), client_sock_.socket().local_endpoint().address().to_string());
-                        break;
-                    }
-                    case LogFormat::Variable::BYTES_SENT: {
-                        const std::string var_name = '$' + LogFormat::variable_to_string(var);
-                        const auto var_pos = log_msg.find(var_name);
-                        log_msg.replace(var_pos, var_name.size(), std::to_string(bytes_sent_));
-                        break;
-                    }
-                    default: {
-                        break;
-                    }
-                }
-            }
-            logger_.value().write(log_msg);
-        }
+        log();
     }
 
     void run() override {
@@ -329,6 +307,33 @@ public:
     }
 
 private:
+    void log() {
+        if (logger_.has_value()) {
+            std::string log_msg = cfg_.format_log.format;
+            for (const auto var : cfg_.format_log.used_vars) {
+                switch (var) {
+                    case LogFormat::Variable::CLIENT_ADDR: {
+                        const std::string var_name = '$' + LogFormat::variable_to_string(var);
+                        const auto var_pos = log_msg.find(var_name);
+                        log_msg.replace(var_pos, var_name.size(), client_sock_.socket().local_endpoint().address().to_string());
+                        break;
+                    }
+                    case LogFormat::Variable::BYTES_SENT: {
+                        const std::string var_name = '$' + LogFormat::variable_to_string(var);
+                        const auto var_pos = log_msg.find(var_name);
+                        log_msg.replace(var_pos, var_name.size(), std::to_string(bytes_sent_));
+                        break;
+                    }
+                    default: {
+                        break;
+                    }
+                }
+            }
+            logger_.value().write(log_msg);
+        }
+    }
+
+
     enum class State : std::uint8_t {
         HEADERS,
         BODY // Need to switch back to headers after whole body is written -> use Content-Length for this i suppose
