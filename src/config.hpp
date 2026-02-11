@@ -23,8 +23,15 @@ struct Servers {
 
 struct LogFormat {
     enum class Variable {
+        // Common variables
         CLIENT_ADDR,
         BYTES_SENT,
+
+        // HTTP specific
+        // ...
+
+        // Stream specific
+        // ...
     };
     static Variable string_to_variable(const std::string_view str) {
         if (str == "client_addr") {
@@ -58,6 +65,9 @@ struct StreamConfig {
     bool tls_enabled{};
     std::string tls_cert_path;
     std::string tls_key_path;
+
+    std::string file_log;
+    LogFormat format_log;
 };
 
 // Right now these two are similar, but what if other fields are added. That's why they are in a std::variant<...>
@@ -174,6 +184,30 @@ inline Config parse_config(const std::filesystem::path &path) {
         cfg.tls_enabled = stream_obj.get("tls_enabled", false).asBool();
         cfg.tls_cert_path = stream_obj.get("tls_cert_path", "").asString();
         cfg.tls_key_path = stream_obj.get("tls_key_path", "").asString();
+
+        // Logs stuff
+        cfg.file_log = stream_obj.get("file_log", "").asString();
+        cfg.format_log.format = stream_obj.get("format_log", "").asString(); // "format_log": "Client address is $client_addr, $bytes_sent bytes have been sent",
+
+        std::string_view format = cfg.format_log.format;
+        while (format.contains("$")) {
+            std::size_t var_start_pos = format.find('$');
+            if (var_start_pos == std::string_view::npos) {
+                break;
+            }
+            var_start_pos += 1; // After $
+
+            auto non_alpha_pos = std::find_if(format.begin() + var_start_pos, format.end(), [](const char el) {
+               return !std::isalpha(el) && el != '_';
+            });
+            std::size_t var_end_pos = static_cast<std::size_t>(std::distance(format.begin(), non_alpha_pos));
+
+            std::string_view var_name = format.substr(var_start_pos, var_end_pos - var_start_pos);
+            cfg.format_log.used_vars.insert(LogFormat::string_to_variable(var_name));
+            format = format.substr(var_end_pos + 1);
+        }
+
+        // -- logs stuff
 
         result.server_config = cfg;
     } else if (json.isMember("http")) {

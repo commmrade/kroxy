@@ -3,12 +3,13 @@
 #include "utils.hpp"
 #include <boost/asio/experimental/parallel_group.hpp>
 
+#include "logger.hpp"
+
 class StreamSession : public Session, public std::enable_shared_from_this<StreamSession> {
 private:
     // client to service
     void do_read_client(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
-            std::println("Client read {} bytes", bytes_tf);
             upstream_buf_.commit(bytes_tf);
             auto write_data = upstream_buf_.data();
 
@@ -40,7 +41,8 @@ private:
 
     void do_write_service(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
-            std::println("service wrote {} bytes", bytes_tf);
+            bytes_sent_ += bytes_tf;
+
             upstream_buf_.consume(bytes_tf);
             assert(upstream_buf_.size() == 0);
 
@@ -62,7 +64,6 @@ private:
     // service to client
     void do_read_service(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
-            std::println("Service read {} bytes", bytes_tf);
             downstream_buf_.commit(bytes_tf);
             auto write_data = downstream_buf_.data();
 
@@ -93,7 +94,8 @@ private:
 
     void do_write_client(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
-            std::println("wrote client {} bytes", bytes_tf);
+            bytes_sent_ += bytes_tf;
+
             downstream_buf_.consume(bytes_tf);
             assert(downstream_buf_.size() == 0);
 
@@ -120,11 +122,14 @@ private:
 
 
 public:
-    explicit StreamSession(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+    explicit StreamSession(StreamConfig& cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
                            boost::asio::ssl::context&& ssl_clnt_ctx, bool is_client_tls,
                            bool is_service_tls)
-        : client_sock_(ctx, ssl_srv_ctx, is_client_tls),
+        : cfg_(cfg), client_sock_(ctx, ssl_srv_ctx, is_client_tls),
           service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
+        if (!cfg_.file_log.empty()) {
+            logger_.emplace(cfg_.file_log);
+        }
     }
 
     StreamSession(const StreamSession &) = delete;
@@ -132,6 +137,32 @@ public:
     StreamSession &operator=(const StreamSession &) = delete;
 
     ~StreamSession() override {
+        if (logger_.has_value()) {
+            std::string log_msg = cfg_.format_log.format;
+            for (const auto var : cfg_.format_log.used_vars) {
+                switch (var) {
+                    case LogFormat::Variable::CLIENT_ADDR: {
+                        std::string var_name = '$' + LogFormat::variable_to_string(var);
+                        auto var_pos = log_msg.find(var_name);
+                        log_msg.replace(var_pos, var_name.size(), client_sock_.socket().local_endpoint().address().to_string());
+                        break;
+                    }
+                    case LogFormat::Variable::BYTES_SENT: {
+                        std::string var_name = '$' + LogFormat::variable_to_string(var);
+                        auto var_pos = log_msg.find(var_name);
+                        log_msg.replace(var_pos, var_name.size(), std::to_string(bytes_sent_));
+                        break;
+                    }
+                    default: {
+                        throw std::runtime_error("Not implemented");
+                        break;
+                    }
+                }
+            }
+            logger_.value().write(log_msg);
+        }
+
+
         close_ses();
     }
 
@@ -174,9 +205,15 @@ public:
 
 
 private:
+    StreamConfig& cfg_;
+
     Stream client_sock_;
     Stream service_sock_;
 
     boost::asio::streambuf upstream_buf_;
     boost::asio::streambuf downstream_buf_;
+
+    // Logging stuff
+    std::optional<Logger> logger_;
+    std::size_t bytes_sent_{};
 };

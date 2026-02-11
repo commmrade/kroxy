@@ -44,13 +44,13 @@ private:
                 ssl_clnt_ctx.set_default_verify_paths();
                 ssl_clnt_ctx.set_verify_mode(boost::asio::ssl::verify_peer);
 
-                auto result =  std::make_shared<StreamSession>(ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
+                auto result =  std::make_shared<StreamSession>(std::get<StreamConfig>(cfg_.server_config),ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
                 result->get_service().set_sni(host.host);
 
                 return result;
             } else {
                 boost::asio::ssl::context ssl_clnt_ctx{boost::asio::ssl::context_base::tls_client};
-                return std::make_shared<StreamSession>(ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
+                return std::make_shared<StreamSession>(std::get<StreamConfig>(cfg_.server_config), ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
             }
         } else {
             if (host.tls_enabled) {
@@ -149,7 +149,7 @@ int main() {
     try {
         boost::asio::io_context ctx;
 
-        const std::filesystem::path path{"../http.example.config.json"};
+        const std::filesystem::path path{"../stream.example.config.json"};
         auto cfg = parse_config(path);
 
         Server server{ctx, std::move(cfg)};
