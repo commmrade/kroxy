@@ -10,7 +10,7 @@ class Session {
 public:
     Session(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
             boost::asio::ssl::context &&ssl_clnt_ctx, bool is_service_tls, bool is_client_tls)
-        : client_sock_(ctx, std::move(ssl_clnt_ctx), is_client_tls), service_sock_(ctx, ssl_srv_ctx, is_service_tls) {
+        : client_sock_(ctx, ssl_srv_ctx, is_client_tls), service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
     }
 
     virtual ~Session() {

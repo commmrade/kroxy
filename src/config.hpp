@@ -26,6 +26,7 @@ struct LogFormat {
         // Common variables
         CLIENT_ADDR,
         BYTES_SENT,
+        PROCESSING_TIME,
 
         // HTTP specific
         // ...
@@ -38,16 +39,20 @@ struct LogFormat {
             return Variable::CLIENT_ADDR;
         } else if (str == "bytes_sent") {
             return Variable::BYTES_SENT;
+        } else if (str == "processing_time") {
+            return Variable::PROCESSING_TIME;
         } else {
             throw std::runtime_error("Invalid variable string: " + std::string(str));
         }
     }
-    static std::string variable_to_string(Variable var) {
+    static std::string variable_to_string(const Variable var) {
         switch (var) {
             case Variable::CLIENT_ADDR:
                 return "client_addr";
             case Variable::BYTES_SENT:
                 return "bytes_sent";
+            case Variable::PROCESSING_TIME:
+                return "processing_time";
             default:
                 throw std::runtime_error("Not implemented");
         }
@@ -192,6 +197,10 @@ inline HttpConfig parse_http(const Json::Value& http_obj) {
 
         const std::string_view var_name = format.substr(var_start_pos, var_end_pos - var_start_pos);
         cfg.format_log.used_vars.insert(LogFormat::string_to_variable(var_name));
+
+        if (var_end_pos + 1 >= format.size()) {
+            break;
+        }
         format = format.substr(var_end_pos + 1);
     }
 
@@ -242,6 +251,10 @@ inline StreamConfig parse_stream(const Json::Value& stream_obj) {
 
         const std::string_view var_name = format.substr(var_start_pos, var_end_pos - var_start_pos);
         cfg.format_log.used_vars.insert(LogFormat::string_to_variable(var_name));
+
+        if (var_end_pos + 1 >= format.size()) {
+            break;
+        }
         format = format.substr(var_end_pos + 1);
     }
 

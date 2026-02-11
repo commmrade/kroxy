@@ -3,6 +3,7 @@
 #include "utils.hpp"
 #include <boost/asio/experimental/parallel_group.hpp>
 
+#include "config.hpp"
 #include "logger.hpp"
 
 class StreamSession : public Session, public std::enable_shared_from_this<StreamSession> {
@@ -167,6 +168,8 @@ public:
 
                 do_upstream();
                 do_downstream();
+
+                start_time_ = std::chrono::high_resolution_clock::now();
             }
         );
     }
@@ -177,23 +180,27 @@ private:
     void log() {
         if (logger_.has_value()) {
             std::string log_msg = cfg_.format_log.format;
-            for (const auto var: cfg_.format_log.used_vars) {
+            for (const auto var : cfg_.format_log.used_vars) {
+                auto replace_variable = [&log_msg](LogFormat::Variable var, const std::string& replace_to) {
+                    const std::string var_name = '$' + LogFormat::variable_to_string(var);
+                    const auto var_pos = log_msg.find(var_name);
+                    log_msg.replace(var_pos, var_name.size(), replace_to);
+                };
                 switch (var) {
                     case LogFormat::Variable::CLIENT_ADDR: {
-                        const std::string var_name = '$' + LogFormat::variable_to_string(var);
-                        auto var_pos = log_msg.find(var_name);
-                        log_msg.replace(var_pos, var_name.size(),
-                                        client_sock_.socket().local_endpoint().address().to_string());
+                        replace_variable(LogFormat::Variable::CLIENT_ADDR, client_sock_.socket().local_endpoint().address().to_string());
                         break;
                     }
                     case LogFormat::Variable::BYTES_SENT: {
-                        const std::string var_name = '$' + LogFormat::variable_to_string(var);
-                        auto var_pos = log_msg.find(var_name);
-                        log_msg.replace(var_pos, var_name.size(), std::to_string(bytes_sent_));
+                        replace_variable(LogFormat::Variable::BYTES_SENT, std::to_string(bytes_sent_));;
+                        break;
+                    }
+                    case LogFormat::Variable::PROCESSING_TIME: {
+                        auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_);
+                        replace_variable(LogFormat::Variable::PROCESSING_TIME, std::format("{}ms", diff.count()));
                         break;
                     }
                     default: {
-                        throw std::runtime_error("Not implemented");
                         break;
                     }
                 }
@@ -210,4 +217,5 @@ private:
     // Logging stuff
     std::optional<Logger> logger_;
     std::size_t bytes_sent_{};
+    std::chrono::time_point<std::chrono::system_clock> start_time_;
 };

@@ -14,12 +14,12 @@
       "X-Real-IP": "$addr"
     },
 
-    "tls_enabled": false,
+    "tls_enabled": true,
     "tls_cert_path": "../tls/certificate.crt",
     "tls_key_path": "../tls/private.key",
 
     "file_log": "/dev/stdout",
-    "format_log": "Client address is $client_addr, $bytes_sent bytes have been sent",
+    "format_log": "Client address is $client_addr, $bytes_sent bytes have been sent, $processing_time",
 
     "timeout_ms": 5000,
     "pass_to": "google-tls"
