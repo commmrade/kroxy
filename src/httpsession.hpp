@@ -7,6 +7,8 @@
 #include "config.hpp"
 #include "session.hpp"
 #include <memory>
+
+#include "logger.hpp"
 #include "utils.hpp"
 #include "stream.hpp"
 
@@ -272,6 +274,9 @@ public:
         : cfg_(cfg),
           client_sock_(ctx, ssl_srv_ctx, is_client_tls),
           service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
+        if (!cfg_.file_log.empty()) {
+            logger_.emplace(cfg_.file_log);
+        }
     }
 
     HttpSession(const HttpSession &) = delete;
@@ -279,7 +284,33 @@ public:
     HttpSession &operator=(const HttpSession &) = delete;
 
     ~HttpSession() override {
-        std::println("Addr: {}, Bytes sent: {} bytes", client_sock_.socket().remote_endpoint().address().to_string(), bytes_sent_);
+        if (logger_.has_value()) {
+            std::string log_msg = cfg_.format_log.format;
+            for (const auto var : cfg_.format_log.used_vars) {
+                switch (var) {
+                    case LogFormat::Variable::CLIENT_ADDR: {
+                        std::string var_name = '$' + LogFormat::variable_to_string(var);
+                        auto var_pos = log_msg.find(var_name);
+                        log_msg.replace(var_pos, var_name.size(), client_sock_.socket().local_endpoint().address().to_string());
+                        break;
+                    }
+                    case LogFormat::Variable::BYTES_SENT: {
+                        std::string var_name = '$' + LogFormat::variable_to_string(var);
+                        auto var_pos = log_msg.find(var_name);
+                        log_msg.replace(var_pos, var_name.size(), std::to_string(bytes_sent_));
+                        break;
+                    }
+                    default: {
+                        throw std::runtime_error("Not implemented");
+                        break;
+                    }
+                }
+            }
+            logger_.value().write(log_msg);
+        }
+
+
+        // std::println("Addr: {}, Bytes sent: {} bytes", client_sock_.socket().remote_endpoint().address().to_string(), bytes_sent_);
 
         close_ses();
     }
@@ -345,5 +376,7 @@ private:
     State downstream_state_{};
 
     // Logging stuff
+    std::optional<Logger> logger_; // May not be used, if file_log is null
+
     std::size_t bytes_sent_{};
 };
