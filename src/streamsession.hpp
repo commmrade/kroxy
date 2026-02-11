@@ -114,19 +114,11 @@ private:
                                       });
     }
 
-    void close_ses() {
-        client_sock_.socket().close();
-        service_sock_.socket().close();
-    }
-
-
-
 public:
     explicit StreamSession(StreamConfig& cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
                            boost::asio::ssl::context&& ssl_clnt_ctx, bool is_client_tls,
                            bool is_service_tls)
-        : cfg_(cfg), client_sock_(ctx, ssl_srv_ctx, is_client_tls),
-          service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
+        : Session(ctx, ssl_srv_ctx, std::move(ssl_clnt_ctx), is_service_tls, is_client_tls), cfg_(cfg) {
         if (!cfg_.file_log.empty()) {
             logger_.emplace(cfg_.file_log);
         }
@@ -142,13 +134,13 @@ public:
             for (const auto var : cfg_.format_log.used_vars) {
                 switch (var) {
                     case LogFormat::Variable::CLIENT_ADDR: {
-                        std::string var_name = '$' + LogFormat::variable_to_string(var);
+                        const std::string var_name = '$' + LogFormat::variable_to_string(var);
                         auto var_pos = log_msg.find(var_name);
                         log_msg.replace(var_pos, var_name.size(), client_sock_.socket().local_endpoint().address().to_string());
                         break;
                     }
                     case LogFormat::Variable::BYTES_SENT: {
-                        std::string var_name = '$' + LogFormat::variable_to_string(var);
+                        const std::string var_name = '$' + LogFormat::variable_to_string(var);
                         auto var_pos = log_msg.find(var_name);
                         log_msg.replace(var_pos, var_name.size(), std::to_string(bytes_sent_));
                         break;
@@ -161,17 +153,6 @@ public:
             }
             logger_.value().write(log_msg);
         }
-
-
-        close_ses();
-    }
-
-    Stream &get_client() override {
-        return client_sock_;
-    }
-
-    Stream &get_service() override {
-        return service_sock_;
     }
 
     void run() override {
@@ -206,9 +187,6 @@ public:
 
 private:
     StreamConfig& cfg_;
-
-    Stream client_sock_;
-    Stream service_sock_;
 
     boost::asio::streambuf upstream_buf_;
     boost::asio::streambuf downstream_buf_;

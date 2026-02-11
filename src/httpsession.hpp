@@ -262,18 +262,10 @@ private:
             }
         }
     }
-
-    void close_ses() {
-        client_sock_.socket().close();
-        service_sock_.socket().close();
-    }
-
 public:
     HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
                 boost::asio::ssl::context&& ssl_clnt_ctx, bool is_client_tls, bool is_service_tls)
-        : cfg_(cfg),
-          client_sock_(ctx, ssl_srv_ctx, is_client_tls),
-          service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
+        : Session(ctx, ssl_srv_ctx, std::move(ssl_clnt_ctx), is_service_tls, is_client_tls), cfg_(cfg) {
         if (!cfg_.file_log.empty()) {
             logger_.emplace(cfg_.file_log);
         }
@@ -289,30 +281,24 @@ public:
             for (const auto var : cfg_.format_log.used_vars) {
                 switch (var) {
                     case LogFormat::Variable::CLIENT_ADDR: {
-                        std::string var_name = '$' + LogFormat::variable_to_string(var);
-                        auto var_pos = log_msg.find(var_name);
+                        const std::string var_name = '$' + LogFormat::variable_to_string(var);
+                        const auto var_pos = log_msg.find(var_name);
                         log_msg.replace(var_pos, var_name.size(), client_sock_.socket().local_endpoint().address().to_string());
                         break;
                     }
                     case LogFormat::Variable::BYTES_SENT: {
-                        std::string var_name = '$' + LogFormat::variable_to_string(var);
-                        auto var_pos = log_msg.find(var_name);
+                        const std::string var_name = '$' + LogFormat::variable_to_string(var);
+                        const auto var_pos = log_msg.find(var_name);
                         log_msg.replace(var_pos, var_name.size(), std::to_string(bytes_sent_));
                         break;
                     }
                     default: {
-                        throw std::runtime_error("Not implemented");
                         break;
                     }
                 }
             }
             logger_.value().write(log_msg);
         }
-
-
-        // std::println("Addr: {}, Bytes sent: {} bytes", client_sock_.socket().remote_endpoint().address().to_string(), bytes_sent_);
-
-        close_ses();
     }
 
     void run() override {
@@ -342,14 +328,6 @@ public:
         );
     }
 
-    Stream &get_client() override {
-        return client_sock_;
-    }
-
-    Stream &get_service() override {
-        return service_sock_;
-    }
-
 private:
     enum class State : std::uint8_t {
         HEADERS,
@@ -358,9 +336,6 @@ private:
 
     // To be used by algorithms to process headers
     HttpConfig &cfg_;
-
-    Stream client_sock_;
-    Stream service_sock_;
 
     // These are optionals since you need to 'reset' it after handling each HTTP request
     std::optional<boost::beast::http::request_parser<boost::beast::http::buffer_body> > request_p_;

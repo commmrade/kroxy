@@ -7,9 +7,9 @@
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/http/message.hpp>
-#include <boost/beast/http/message_fwd.hpp>
-#include <boost/beast/http/parser_fwd.hpp>
-#include <boost/beast/http/serializer_fwd.hpp>
+#include <boost/beast/http/message.hpp>
+#include <boost/beast/http/parser.hpp>
+#include <boost/beast/http/serializer.hpp>
 #include <boost/beast/http/write.hpp>
 #include <boost/system/detail/error_code.hpp>
 #include <boost/asio/ssl.hpp>
