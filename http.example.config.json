@@ -19,6 +19,6 @@
     "tls_key_path": "../tls/private.key",
 
     "timeout_ms": 5000,
-    "pass_to": "google"
+    "pass_to": "google-tls"
   }
 }
