@@ -49,6 +49,8 @@ private:
 
     void do_write_service_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
+            bytes_sent_ += bytes_tf;
+
             if (!request_p_->is_done()) {
                 upstream_state_ = State::BODY;
 
@@ -92,6 +94,8 @@ private:
 
     void do_write_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (errc == boost::beast::http::error::need_buffer || !errc) {
+            bytes_sent_ += bytes_tf;
+
             if (request_p_->is_done() && request_s_->is_done()) {
                 // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on parser or serializer)
                 upstream_state_ = State::HEADERS;
@@ -164,6 +168,8 @@ private:
 
     void do_write_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
+            bytes_sent_ += bytes_tf;
+
             // Now we need to start reading the body, considering we may have body bytes in upstream_buf_
             if (!response_p_->is_done()) {
                 downstream_state_ = State::BODY;
@@ -209,6 +215,8 @@ private:
     void do_write_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         std::println("Write client body {} bytes", bytes_tf);
         if (boost::beast::http::error::need_buffer == errc || !errc) {
+            bytes_sent_ += bytes_tf;
+
             if (response_p_->is_done() && response_s_->is_done()) {
                 downstream_state_ = State::HEADERS;
             }
@@ -271,6 +279,8 @@ public:
     HttpSession &operator=(const HttpSession &) = delete;
 
     ~HttpSession() override {
+        std::println("Addr: {}, Bytes sent: {} bytes", client_sock_.socket().remote_endpoint().address().to_string(), bytes_sent_);
+
         close_ses();
     }
 
@@ -333,4 +343,7 @@ private:
     boost::beast::flat_buffer downstream_buf_;
     std::array<char, BUF_SIZE> ds_buf_{};
     State downstream_state_{};
+
+    // Logging stuff
+    std::size_t bytes_sent_{};
 };
