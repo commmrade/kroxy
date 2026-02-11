@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <fstream>
 
+#include "config.hpp"
+
 class Logger
 {
   public:
@@ -26,5 +28,6 @@ class Logger
     std::ofstream m_file;
 };
 
+void replace_variable(std::string& log_msg, LogFormat::Variable var, const std::string& replace_to);
 
 #endif// KROXY_LOGGER_HPP
