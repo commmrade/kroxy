@@ -7,6 +7,7 @@
 #include <json/reader.h>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -18,6 +19,35 @@ struct Host {
 
 struct Servers {
     std::unordered_map<std::string, std::vector<Host> > servers;
+};
+
+struct LogFormat {
+    enum class Variable {
+        CLIENT_ADDR,
+        BYTES_SENT,
+    };
+    static Variable string_to_variable(const std::string_view str) {
+        if (str == "client_addr") {
+            return Variable::CLIENT_ADDR;
+        } else if (str == "bytes_sent") {
+            return Variable::BYTES_SENT;
+        } else {
+            throw std::runtime_error("Invalid variable string: " + std::string(str));
+        }
+    }
+    static std::string variable_to_string(Variable var) {
+        switch (var) {
+            case Variable::CLIENT_ADDR:
+                return "client_addr";
+            case Variable::BYTES_SENT:
+                return "bytes_sent";
+            default:
+                throw std::runtime_error("Not implemented");
+        }
+    }
+
+    std::string format;
+    std::unordered_set<Variable> used_vars;
 };
 
 struct StreamConfig {
@@ -40,8 +70,10 @@ struct HttpConfig {
     bool tls_enabled{};
     std::string tls_cert_path;
     std::string tls_key_path;
-};
 
+    std::string file_log;
+    LogFormat format_log;
+};
 
 static constexpr unsigned short DEFAULT_PORT = 8080;
 static constexpr std::size_t DEFAULT_TIMEOUT = 1000;
@@ -168,6 +200,30 @@ inline Config parse_config(const std::filesystem::path &path) {
         if (cfg.tls_enabled && cfg.tls_key_path.empty()) {
             throw std::runtime_error("TLS private key path is not specified!");
         }
+
+        // Logs stuff
+        cfg.file_log = http_obj.get("file_log", "").asString();
+        cfg.format_log.format = http_obj.get("format_log", "").asString(); // "format_log": "Client address is $client_addr, $bytes_sent bytes have been sent",
+
+        std::string_view format = cfg.format_log.format;
+        while (format.contains("$")) {
+            std::size_t var_start_pos = format.find('$');
+            if (var_start_pos == std::string_view::npos) {
+                break;
+            }
+            var_start_pos += 1; // After $
+
+            auto non_alpha_pos = std::find_if(format.begin() + var_start_pos, format.end(), [](const char el) {
+               return !std::isalpha(el) && el != '_';
+            });
+            std::size_t var_end_pos = static_cast<std::size_t>(std::distance(format.begin(), non_alpha_pos));
+
+            std::string_view var_name = format.substr(var_start_pos, var_end_pos - var_start_pos);
+            cfg.format_log.used_vars.insert(LogFormat::string_to_variable(var_name));
+            format = format.substr(var_end_pos + 1);
+        }
+
+        // -- logs stuff
 
         const auto headers_obj = http_obj["headers"];
         if (headers_obj.isObject()) {
