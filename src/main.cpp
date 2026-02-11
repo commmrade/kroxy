@@ -149,7 +149,7 @@ int main() {
     try {
         boost::asio::io_context ctx;
 
-        const std::filesystem::path path{"../stream.example.config.json"};
+        const std::filesystem::path path{"../http.example.config.json"};
         auto cfg = parse_config(path);
 
         Server server{ctx, std::move(cfg)};

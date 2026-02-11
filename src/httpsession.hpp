@@ -25,6 +25,9 @@ private:
     void do_read_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
             auto &msg = request_p_.value().get();
+            request_uri_ = msg.base().target();
+            user_agent_ = msg.at(boost::beast::http::field::user_agent);
+
             process_headers(msg);
             request_s_.emplace(msg);
 
@@ -145,8 +148,9 @@ private:
     void do_read_service_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
             auto &msg = response_p_.value().get();
-            response_s_.emplace(msg);
+            http_status_ = static_cast<unsigned int>(msg.base().result());
 
+            response_s_.emplace(msg);
             client_sock_.async_write_header(*response_s_,
                                             [self = shared_from_this(), this](
                                         const boost::system::error_code &errc,
@@ -315,16 +319,28 @@ private:
             for (const auto var : cfg_.format_log.used_vars) {
                 switch (var) {
                     case LogFormat::Variable::CLIENT_ADDR: {
-                        replace_variable(log_msg, LogFormat::Variable::CLIENT_ADDR, client_sock_.socket().local_endpoint().address().to_string());
+                        replace_variable(log_msg, var, client_sock_.socket().local_endpoint().address().to_string());
                         break;
                     }
                     case LogFormat::Variable::BYTES_SENT: {
-                        replace_variable(log_msg, LogFormat::Variable::BYTES_SENT, std::to_string(bytes_sent_));;
+                        replace_variable(log_msg, var, std::to_string(bytes_sent_));;
                         break;
                     }
                     case LogFormat::Variable::PROCESSING_TIME: {
                         auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_);
-                        replace_variable(log_msg, LogFormat::Variable::PROCESSING_TIME, std::format("{}ms", diff.count()));
+                        replace_variable(log_msg, var, std::format("{}ms", diff.count()));
+                        break;
+                    }
+                    case LogFormat::Variable::REQUEST_URI: {
+                        replace_variable(log_msg, var, request_uri_);
+                        break;
+                    }
+                    case LogFormat::Variable::STATUS: {
+                        replace_variable(log_msg, var, std::to_string(http_status_));
+                        break;
+                    }
+                    case LogFormat::Variable::HTTP_USER_AGENT: {
+                        replace_variable(log_msg, var, user_agent_);
                         break;
                     }
                     default: {
@@ -362,4 +378,7 @@ private:
     std::optional<Logger> logger_; // May not be used, if file_log is null
     std::size_t bytes_sent_{};
     std::chrono::time_point<std::chrono::system_clock> start_time_;
+    std::string request_uri_;
+    unsigned int http_status_{};
+    std::string user_agent_;
 };

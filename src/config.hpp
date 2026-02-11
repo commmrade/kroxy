@@ -29,6 +29,9 @@ struct LogFormat {
         PROCESSING_TIME,
 
         // HTTP specific
+        REQUEST_URI,
+        STATUS,
+        HTTP_USER_AGENT,
         // ...
 
         // Stream specific
@@ -41,6 +44,12 @@ struct LogFormat {
             return Variable::BYTES_SENT;
         } else if (str == "processing_time") {
             return Variable::PROCESSING_TIME;
+        } else if (str == "request_uri") {
+            return Variable::REQUEST_URI;
+        } else if (str == "status") {
+            return Variable::STATUS;
+        } else if (str == "http_user_agent") {
+            return Variable::HTTP_USER_AGENT;
         } else {
             throw std::runtime_error("Invalid variable string: " + std::string(str));
         }
@@ -53,6 +62,12 @@ struct LogFormat {
                 return "bytes_sent";
             case Variable::PROCESSING_TIME:
                 return "processing_time";
+            case Variable::REQUEST_URI:
+                return "request_uri";
+            case Variable::STATUS:
+                return "status";
+            case Variable::HTTP_USER_AGENT:
+                return "http_user_agent";
             default:
                 throw std::runtime_error("Not implemented");
         }
