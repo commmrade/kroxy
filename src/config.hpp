@@ -216,13 +216,12 @@ inline HttpConfig parse_http(const Json::Value& http_obj) {
 
     cfg.tls_enabled = http_obj.get("tls_enabled", false).asBool();
     cfg.tls_cert_path = http_obj.get("tls_cert_path", "").asString();
-    if (cfg.tls_enabled && cfg.tls_cert_path.empty()) {
-        throw std::runtime_error("TLS certificate path is not specified!");
-    }
     cfg.tls_key_path = http_obj.get("tls_key_path", "").asString();
-    if (cfg.tls_enabled && cfg.tls_key_path.empty()) {
-        throw std::runtime_error("TLS private key path is not specified!");
+
+    if (cfg.tls_enabled && (cfg.tls_cert_path.empty() || cfg.tls_key_path.empty())) {
+        throw std::runtime_error("TLS enabled, but tls_cert_path or tls_key_path is empty");
     }
+
 
     // Logs stuff
     cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
@@ -252,6 +251,10 @@ inline StreamConfig parse_stream(const Json::Value& stream_obj) {
     cfg.tls_enabled = stream_obj.get("tls_enabled", false).asBool();
     cfg.tls_cert_path = stream_obj.get("tls_cert_path", "").asString();
     cfg.tls_key_path = stream_obj.get("tls_key_path", "").asString();
+
+    if (cfg.tls_enabled && (cfg.tls_cert_path.empty() || cfg.tls_key_path.empty())) {
+        throw std::runtime_error("TLS enabled, but tls_cert_path or tls_key_path is empty");
+    }
 
     cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
 
@@ -299,6 +302,10 @@ inline Config parse_config(const std::filesystem::path &path) {
         }
     } else {
         throw std::runtime_error("Servers block is empty");
+    }
+
+    if (!result.servers.servers.contains(result.get_pass_to())) {
+        throw std::runtime_error("Incorrect pass to was supplied. Such server does not exist");
     }
 
     return result;

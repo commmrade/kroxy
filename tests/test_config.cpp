@@ -71,3 +71,260 @@ TEST(FormatParsing, EmptyFormat) {
     auto res = parse_variables("");
     ASSERT_TRUE(res.empty());
 }
+
+static inline Config parse_config_from_string(std::string_view text) {
+    Json::Value json;
+    Json::CharReaderBuilder const builder;
+    JSONCPP_STRING errs;
+
+    std::istringstream iss{std::string(text)};
+    if (!Json::parseFromStream(builder, iss, &json, &errs)) {
+        throw std::runtime_error("Was unable to parse JSON config");
+    }
+
+    if (!json.isObject()) {
+        throw std::runtime_error("Root JSON is not an object");
+    }
+
+    Config result;
+
+    if (json.isMember("stream")) {
+        result.server_config = parse_stream(json["stream"]);
+    } else if (json.isMember("http")) {
+        result.server_config = parse_http(json["http"]);
+    } else {
+        throw std::runtime_error{"Server configuration not found"};
+    }
+
+    auto servers_obj = json["servers"];
+    if (servers_obj.isObject() && !servers_obj.empty()) {
+        for (const auto &serv_block: servers_obj.getMemberNames()) {
+            const auto &block = servers_obj[serv_block];
+            for (const auto &host: block) {
+                auto host_str = host["host"].asString();
+                auto port = host["port"].asInt();
+                auto tls_enabled = host["tls_enabled"].asBool();
+
+                result.servers.servers[serv_block]
+                    .emplace_back(host_str, port, tls_enabled);
+            }
+        }
+    } else {
+        throw std::runtime_error("Servers block is empty");
+    }
+
+    if (!result.servers.servers.contains(result.get_pass_to())) {
+        throw std::runtime_error("Incorrect pass to was supplied. Such server does not exist");
+    }
+
+
+    return result;
+}
+
+TEST(StreamConfig, NoServers) {
+    const char* config_no_servers = R"json(
+    {
+      "stream": {
+        "port": 8080,
+        "timeout_ms": 500,
+        "pass_to": "google"
+      }
+    }
+    )json";
+
+    EXPECT_THROW(
+        parse_config_from_string(config_no_servers),
+        std::runtime_error
+    );
+}
+
+TEST(StreamConfig, EmptyPassTo) {
+    const char* config_no_pass_to = R"json(
+    {
+      "servers": {
+        "google": [
+          { "host": "google.com", "port": 80 }
+        ]
+      },
+
+      "stream": {
+        "port": 8080,
+        "timeout_ms": 500,
+
+        "tls_enabled": false,
+        "tls_cert_path": "../tls/certificate.crt",
+        "tls_key_path": "../tls/private.key",
+
+        "file_log": "/dev/stdout",
+        "format_log": "Client address is $client_addr"
+      }
+    }
+    )json";
+    EXPECT_ANY_THROW(parse_config_from_string(config_no_pass_to));
+}
+
+TEST(StreamConfig, IncorrectPassTo) {
+    const char* config_no_pass_to = R"json(
+    {
+      "servers": {
+        "google": [
+          { "host": "google.com", "port": 80 }
+        ]
+      },
+
+      "stream": {
+        "port": 8080,
+        "timeout_ms": 500,
+        "pass_to": "goggles",
+
+        "file_log": "/dev/stdout",
+        "format_log": "Client address is $client_addr"
+      }
+    }
+    )json";
+    EXPECT_ANY_THROW(parse_config_from_string(config_no_pass_to));
+}
+
+TEST(StreamConfig, TlsEnabledWithCerts) {
+    const char* full_stream_config = R"json(
+    {
+      "servers": {
+        "google": [{ "host": "google.com", "port": 80 }]
+      },
+
+      "stream": {
+        "port": 8080,
+        "timeout_ms": 500,
+        "pass_to": "google",
+
+        "tls_enabled": true,
+        "tls_cert_path": "../tls/certificate.crt",
+        "tls_key_path": "../tls/private.key",
+      }
+    }
+    )json";
+    ASSERT_NO_THROW(parse_config_from_string(full_stream_config));
+}
+
+TEST(StreamConfig, TlsEnabledNoCerts) {
+    const char* full_stream_config = R"json(
+    {
+      "servers": {
+        "google": [{ "host": "google.com", "port": 80 }]
+      },
+
+      "stream": {
+        "port": 8080,
+        "timeout_ms": 500,
+        "pass_to": "google",
+
+        "tls_enabled": true,
+      }
+    }
+    )json";
+    ASSERT_ANY_THROW(parse_config_from_string(full_stream_config));
+}
+
+TEST(HttpConfig, NoServers) {
+    const char* config_no_servers = R"json(
+    {
+      "http": {
+        "port": 8080,
+        "timeout_ms": 500,
+        "pass_to": "google"
+      }
+    }
+    )json";
+
+    EXPECT_THROW(
+        parse_config_from_string(config_no_servers),
+        std::runtime_error
+    );
+}
+
+TEST(HttpConfig, EmptyPassTo) {
+    const char* config_no_pass_to = R"json(
+    {
+      "servers": {
+        "google": [
+          { "host": "google.com", "port": 80 }
+        ]
+      },
+
+      "http": {
+        "port": 8080,
+        "timeout_ms": 500,
+
+        "tls_enabled": false,
+        "tls_cert_path": "../tls/certificate.crt",
+        "tls_key_path": "../tls/private.key",
+
+        "file_log": "/dev/stdout",
+        "format_log": "Client address is $client_addr"
+      }
+    }
+    )json";
+    EXPECT_ANY_THROW(parse_config_from_string(config_no_pass_to));
+}
+
+TEST(HttpConfig, IncorrectPassTo) {
+    const char* config_no_pass_to = R"json(
+    {
+      "servers": {
+        "google": [
+          { "host": "google.com", "port": 80 }
+        ]
+      },
+
+      "http": {
+        "port": 8080,
+        "timeout_ms": 500,
+        "pass_to": "goggles",
+
+        "file_log": "/dev/stdout",
+        "format_log": "Client address is $client_addr"
+      }
+    }
+    )json";
+    EXPECT_ANY_THROW(parse_config_from_string(config_no_pass_to));
+}
+
+TEST(HttpConfig, TlsEnabledWithCerts) {
+    const char* full_stream_config = R"json(
+    {
+      "servers": {
+        "google": [{ "host": "google.com", "port": 80 }]
+      },
+
+      "http": {
+        "port": 8080,
+        "timeout_ms": 500,
+        "pass_to": "google",
+
+        "tls_enabled": true,
+        "tls_cert_path": "../tls/certificate.crt",
+        "tls_key_path": "../tls/private.key",
+      }
+    }
+    )json";
+    ASSERT_NO_THROW(parse_config_from_string(full_stream_config));
+}
+
+TEST(HttpConfig, TlsEnabledNoCerts) {
+    const char* full_stream_config = R"json(
+    {
+      "servers": {
+        "google": [{ "host": "google.com", "port": 80 }]
+      },
+
+      "http": {
+        "port": 8080,
+        "timeout_ms": 500,
+        "pass_to": "google",
+
+        "tls_enabled": true,
+      }
+    }
+    )json";
+    ASSERT_ANY_THROW(parse_config_from_string(full_stream_config));
+}
