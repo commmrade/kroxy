@@ -145,11 +145,14 @@ private:
 };
 
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        throw std::runtime_error("Please, pass config path");
+    }
     try {
         boost::asio::io_context ctx;
 
-        const std::filesystem::path path{"../http.example.config.json"};
+        const std::filesystem::path path{argv[1]};
         auto cfg = parse_config(path);
 
         Server server{ctx, std::move(cfg)};
