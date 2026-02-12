@@ -196,7 +196,7 @@ inline std::unordered_set<LogFormat::Variable> parse_variables(std::string_view 
         if (var_end_pos + 1 >= format.size()) {
             break;
         }
-        format = format.substr(var_end_pos + 1);
+        format = format.substr(var_end_pos);
     }
     return result;
 }
