@@ -104,7 +104,6 @@ private:
             bytes_sent_.value() += bytes_tf;
 
             if (request_p_->is_done() && request_s_->is_done()) {
-                std::println("upstream done");
                 check_log();
                 // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on parser or serializer)
                 upstream_state_ = State::HEADERS;
@@ -232,7 +231,6 @@ private:
 
 
             if (response_p_->is_done() && response_s_->is_done()) {
-                std::println("downstream done");
                 check_log();
                 downstream_state_ = State::HEADERS;
             }
@@ -290,9 +288,7 @@ public:
 
     HttpSession &operator=(const HttpSession &) = delete;
 
-    ~HttpSession() override {
-        // log();
-    }
+    ~HttpSession() override = default;
 
     void run() override {
         boost::asio::experimental::make_parallel_group(
