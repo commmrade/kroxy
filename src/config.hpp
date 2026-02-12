@@ -30,6 +30,7 @@ struct LogFormat {
 
         // HTTP specific
         REQUEST_URI,
+        REQUEST_METHOD,
         STATUS,
         HTTP_USER_AGENT,
         // ...
@@ -37,7 +38,8 @@ struct LogFormat {
         // Stream specific
         // ...
     };
-    static Variable string_to_variable(const std::string_view str) {
+    static Variable string_to_variable(const std::string_view str)
+    {
         if (str == "client_addr") {
             return Variable::CLIENT_ADDR;
         } else if (str == "bytes_sent") {
@@ -50,6 +52,8 @@ struct LogFormat {
             return Variable::STATUS;
         } else if (str == "http_user_agent") {
             return Variable::HTTP_USER_AGENT;
+        } else if (str == "request_method") {
+            return Variable::REQUEST_METHOD;
         } else {
             throw std::runtime_error("Invalid variable string: " + std::string(str));
         }
@@ -68,6 +72,8 @@ struct LogFormat {
                 return "status";
             case Variable::HTTP_USER_AGENT:
                 return "http_user_agent";
+            case Variable::REQUEST_METHOD:
+                return "request_method";
             default:
                 throw std::runtime_error("Not implemented");
         }

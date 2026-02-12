@@ -26,6 +26,7 @@ private:
         if (!errc) {
             auto &msg = request_p_.value().get();
             request_uri_.emplace(msg.base().target());
+            request_method_.emplace(msg.base().method_string());
             user_agent_.emplace(msg.at(boost::beast::http::field::user_agent));
 
             process_headers(msg);
@@ -332,7 +333,8 @@ private:
             start_time_.has_value() &&
             request_uri_.has_value() &&
             http_status_.has_value() &&
-            user_agent_.has_value()) {
+            user_agent_.has_value() &&
+            request_method_.has_value()) {
             log();
         }
     }
@@ -368,6 +370,10 @@ private:
                         replace_variable(log_msg, var, user_agent_.value());
                         break;
                     }
+                    case LogFormat::Variable::REQUEST_METHOD: {
+                        replace_variable(log_msg, var, request_method_.value());
+                        break;
+                    }
                     default: {
                         break;
                     }
@@ -378,6 +384,7 @@ private:
             bytes_sent_.emplace(0);
             start_time_.reset();
             request_uri_.reset();
+            request_method_.reset();
             http_status_.reset();
             user_agent_.reset();
         }
@@ -410,6 +417,7 @@ private:
     std::optional<std::size_t> bytes_sent_{};
     std::optional<std::chrono::time_point<std::chrono::system_clock> > start_time_;
     std::optional<std::string> request_uri_;
+    std::optional<std::string> request_method_;
     std::optional<unsigned int> http_status_{};
     std::optional<std::string> user_agent_;
 };
