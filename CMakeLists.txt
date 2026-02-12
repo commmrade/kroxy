@@ -9,11 +9,15 @@ find_package(Boost CONFIG REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_package(OpenSSL REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
+pkg_check_modules(JSONCPP REQUIRED jsoncpp)
+
 
 # json-cpp
-find_package(jsoncpp REQUIRED)
+# find_package(jsoncpp REQUIRED)
 
-add_executable(kroxy src/main.cpp)
+add_executable(kroxy src/main.cpp
+        src/logger.cpp
+        src/logger.hpp)
 
 target_include_directories(kroxy PRIVATE
     ${LIBURING_INCLUDE_DIRS}
@@ -43,5 +47,7 @@ target_link_libraries(kroxy PRIVATE
     OpenSSL::SSL
     OpenSSL::Crypto
     ${LIBURING_LIBRARIES}
-    jsoncpp_lib
+    ${JSONCPP_LIBRARIES}
 )
+
+target_include_directories(kroxy PRIVATE ${JSONCPP_INCLUDE_DIRS})

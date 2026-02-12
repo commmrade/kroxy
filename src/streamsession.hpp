@@ -3,12 +3,14 @@
 #include "utils.hpp"
 #include <boost/asio/experimental/parallel_group.hpp>
 
+#include "config.hpp"
+#include "logger.hpp"
+
 class StreamSession : public Session, public std::enable_shared_from_this<StreamSession> {
 private:
     // client to service
     void do_read_client(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
-            std::println("Client read {} bytes", bytes_tf);
             upstream_buf_.commit(bytes_tf);
             auto write_data = upstream_buf_.data();
 
@@ -40,7 +42,8 @@ private:
 
     void do_write_service(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
-            std::println("service wrote {} bytes", bytes_tf);
+            bytes_sent_ += bytes_tf;
+
             upstream_buf_.consume(bytes_tf);
             assert(upstream_buf_.size() == 0);
 
@@ -62,7 +65,6 @@ private:
     // service to client
     void do_read_service(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
-            std::println("Service read {} bytes", bytes_tf);
             downstream_buf_.commit(bytes_tf);
             auto write_data = downstream_buf_.data();
 
@@ -93,7 +95,8 @@ private:
 
     void do_write_client(const boost::system::error_code &errc, std::size_t bytes_tf) {
         if (!errc) {
-            std::println("wrote client {} bytes", bytes_tf);
+            bytes_sent_ += bytes_tf;
+
             downstream_buf_.consume(bytes_tf);
             assert(downstream_buf_.size() == 0);
 
@@ -112,35 +115,26 @@ private:
                                       });
     }
 
-    void close_ses() {
-        client_sock_.socket().close();
-        service_sock_.socket().close();
-    }
-
-
-
 public:
-    explicit StreamSession(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
-                           boost::asio::ssl::context&& ssl_clnt_ctx, bool is_client_tls,
+    explicit StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+                           boost::asio::ssl::context &&ssl_clnt_ctx, bool is_client_tls,
                            bool is_service_tls)
-        : client_sock_(ctx, ssl_srv_ctx, is_client_tls),
-          service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
+        : Session(ctx, ssl_srv_ctx, std::move(ssl_clnt_ctx), is_service_tls, is_client_tls), cfg_(cfg) {
+        if (!cfg_.file_log.empty()) {
+            logger_.emplace(cfg_.file_log);
+        }
     }
 
     StreamSession(const StreamSession &) = delete;
 
     StreamSession &operator=(const StreamSession &) = delete;
 
+    StreamSession(StreamSession &&) = delete;
+
+    StreamSession &operator=(StreamSession &&) = delete;
+
     ~StreamSession() override {
-        close_ses();
-    }
-
-    Stream &get_client() override {
-        return client_sock_;
-    }
-
-    Stream &get_service() override {
-        return service_sock_;
+        log();
     }
 
     void run() override {
@@ -158,25 +152,65 @@ public:
         ).async_wait(
             boost::asio::experimental::wait_for_all(),
             [self, this](
-                std::array<std::size_t, 2> /*completion_order*/,
-                boost::system::error_code ec_client,
-                boost::system::error_code ec_service
-            ) {
-                if (ec_client) { std::println("Client handshake failed: {}", ec_client.message()); return; }
-                if (ec_service) { std::println("Service handshake failed: {}", ec_service.message()); return; }
+        std::array<std::size_t, 2> /*completion_order*/,
+        boost::system::error_code ec_client,
+        boost::system::error_code ec_service
+    ) {
+                if (ec_client) {
+                    std::println("Client handshake failed: {}", ec_client.message());
+                    return;
+                }
+                if (ec_service) {
+                    std::println("Service handshake failed: {}", ec_service.message());
+                    return;
+                }
                 std::println("Both TLS handshakes successful");
 
                 do_upstream();
                 do_downstream();
+
+                start_time_ = std::chrono::high_resolution_clock::now();
             }
         );
     }
 
 
+
 private:
-    Stream client_sock_;
-    Stream service_sock_;
+    void log() {
+        if (logger_.has_value()) {
+            std::string log_msg = cfg_.format_log.format;
+            for (const auto var : cfg_.format_log.used_vars) {
+                switch (var) {
+                    case LogFormat::Variable::CLIENT_ADDR: {
+                        replace_variable(log_msg, LogFormat::Variable::CLIENT_ADDR, client_sock_.socket().local_endpoint().address().to_string());
+                        break;
+                    }
+                    case LogFormat::Variable::BYTES_SENT: {
+                        replace_variable(log_msg, LogFormat::Variable::BYTES_SENT, std::to_string(bytes_sent_));;
+                        break;
+                    }
+                    case LogFormat::Variable::PROCESSING_TIME: {
+                        auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_);
+                        replace_variable(log_msg, LogFormat::Variable::PROCESSING_TIME, std::format("{}ms", diff.count()));
+                        break;
+                    }
+                    default: {
+                        break;
+                    }
+                }
+            }
+            logger_.value().write(log_msg);
+        }
+    }
+
+    StreamConfig &cfg_;
 
     boost::asio::streambuf upstream_buf_;
     boost::asio::streambuf downstream_buf_;
+
+    // Logging stuff
+    std::optional<Logger> logger_;
+    std::size_t bytes_sent_{};
+    std::chrono::time_point<std::chrono::system_clock> start_time_;
 };

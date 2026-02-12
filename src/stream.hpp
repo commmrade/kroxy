@@ -80,9 +80,7 @@ public:
     class initiate_async_handshake_empty
     {
     public:
-        explicit initiate_async_handshake_empty()
-        {
-        }
+        initiate_async_handshake_empty() = default;
         template <typename HandshakeHandler>
         void operator()(HandshakeHandler&& handler,
             [[maybe_unused]] boost::asio::ssl::stream_base::handshake_type type) const

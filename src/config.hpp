@@ -7,6 +7,7 @@
 #include <json/reader.h>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -20,6 +21,68 @@ struct Servers {
     std::unordered_map<std::string, std::vector<Host> > servers;
 };
 
+struct LogFormat {
+    enum class Variable {
+        // Common variables
+        CLIENT_ADDR,
+        BYTES_SENT,
+        PROCESSING_TIME,
+
+        // HTTP specific
+        REQUEST_URI,
+        REQUEST_METHOD,
+        STATUS,
+        HTTP_USER_AGENT,
+        // ...
+
+        // Stream specific
+        // ...
+    };
+    static Variable string_to_variable(const std::string_view str)
+    {
+        if (str == "client_addr") {
+            return Variable::CLIENT_ADDR;
+        } else if (str == "bytes_sent") {
+            return Variable::BYTES_SENT;
+        } else if (str == "processing_time") {
+            return Variable::PROCESSING_TIME;
+        } else if (str == "request_uri") {
+            return Variable::REQUEST_URI;
+        } else if (str == "status") {
+            return Variable::STATUS;
+        } else if (str == "http_user_agent") {
+            return Variable::HTTP_USER_AGENT;
+        } else if (str == "request_method") {
+            return Variable::REQUEST_METHOD;
+        } else {
+            throw std::runtime_error("Invalid variable string: " + std::string(str));
+        }
+    }
+    static std::string variable_to_string(const Variable var) {
+        switch (var) {
+            case Variable::CLIENT_ADDR:
+                return "client_addr";
+            case Variable::BYTES_SENT:
+                return "bytes_sent";
+            case Variable::PROCESSING_TIME:
+                return "processing_time";
+            case Variable::REQUEST_URI:
+                return "request_uri";
+            case Variable::STATUS:
+                return "status";
+            case Variable::HTTP_USER_AGENT:
+                return "http_user_agent";
+            case Variable::REQUEST_METHOD:
+                return "request_method";
+            default:
+                throw std::runtime_error("Not implemented");
+        }
+    }
+
+    std::string format;
+    std::unordered_set<Variable> used_vars;
+};
+
 struct StreamConfig {
     unsigned short port{};
     std::size_t timeout_ms{};
@@ -28,6 +91,9 @@ struct StreamConfig {
     bool tls_enabled{};
     std::string tls_cert_path;
     std::string tls_key_path;
+
+    std::string file_log;
+    LogFormat format_log;
 };
 
 // Right now these two are similar, but what if other fields are added. That's why they are in a std::variant<...>
@@ -40,8 +106,10 @@ struct HttpConfig {
     bool tls_enabled{};
     std::string tls_cert_path;
     std::string tls_key_path;
-};
 
+    std::string file_log;
+    LogFormat format_log;
+};
 
 static constexpr unsigned short DEFAULT_PORT = 8080;
 static constexpr std::size_t DEFAULT_TIMEOUT = 1000;
@@ -108,6 +176,113 @@ struct Config {
     }
 };
 
+inline HttpConfig parse_http(const Json::Value& http_obj) {
+    if (http_obj.empty()) {
+        throw std::runtime_error("Http is empty");
+    }
+
+    HttpConfig cfg;
+    cfg.port = static_cast<unsigned short>(http_obj.get("port", DEFAULT_PORT).asInt());
+    cfg.timeout_ms = http_obj.get("timeout_ms", DEFAULT_TIMEOUT).asUInt();
+    cfg.pass_to = http_obj.get("pass_to", "").asString();
+    if (cfg.pass_to.empty()) {
+        throw std::runtime_error("Pass_to is not defined");
+    }
+
+    cfg.tls_enabled = http_obj.get("tls_enabled", false).asBool();
+    cfg.tls_cert_path = http_obj.get("tls_cert_path", "").asString();
+    if (cfg.tls_enabled && cfg.tls_cert_path.empty()) {
+        throw std::runtime_error("TLS certificate path is not specified!");
+    }
+    cfg.tls_key_path = http_obj.get("tls_key_path", "").asString();
+    if (cfg.tls_enabled && cfg.tls_key_path.empty()) {
+        throw std::runtime_error("TLS private key path is not specified!");
+    }
+
+    // Logs stuff
+    cfg.file_log = http_obj.get("file_log", "").asString();
+    cfg.format_log.format = http_obj.get("format_log", "").asString(); // "format_log": "Client address is $client_addr, $bytes_sent bytes have been sent",
+
+    std::string_view format = cfg.format_log.format;
+    while (format.contains("$")) {
+        std::size_t var_start_pos = format.find('$');
+        if (var_start_pos == std::string_view::npos) {
+            break;
+        }
+        var_start_pos += 1; // After $
+
+        const auto non_alpha_pos = std::find_if(format.begin() + var_start_pos, format.end(), [](const char el) {
+           return !std::isalpha(el) && el != '_';
+        });
+        const auto var_end_pos = static_cast<std::size_t>(std::distance(format.begin(), non_alpha_pos));
+
+        const std::string_view var_name = format.substr(var_start_pos, var_end_pos - var_start_pos);
+        cfg.format_log.used_vars.insert(LogFormat::string_to_variable(var_name));
+
+        if (var_end_pos + 1 >= format.size()) {
+            break;
+        }
+        format = format.substr(var_end_pos + 1);
+    }
+
+    // -- logs stuff
+
+    const auto& headers_obj = http_obj["headers"];
+    if (headers_obj.isObject()) {
+        for (const auto &key: headers_obj.getMemberNames()) {
+            const Json::Value &value = headers_obj[key];
+            cfg.headers[key] = value.asString();
+        }
+    }
+    return cfg;
+}
+
+inline StreamConfig parse_stream(const Json::Value& stream_obj) {
+    if (stream_obj.empty()) {
+        throw std::runtime_error("Stream is empty");
+    }
+    StreamConfig cfg;
+    cfg.port = static_cast<unsigned short>(stream_obj.get("port", DEFAULT_PORT).asInt());
+    cfg.timeout_ms = stream_obj.get("timeout_ms", DEFAULT_TIMEOUT).asUInt();
+    cfg.pass_to = stream_obj.get("pass_to", "").asString();
+    if (cfg.pass_to.empty()) {
+        throw std::runtime_error("Pass_to is not defined");
+    }
+
+    cfg.tls_enabled = stream_obj.get("tls_enabled", false).asBool();
+    cfg.tls_cert_path = stream_obj.get("tls_cert_path", "").asString();
+    cfg.tls_key_path = stream_obj.get("tls_key_path", "").asString();
+
+    // Logs stuff
+    cfg.file_log = stream_obj.get("file_log", "").asString();
+    cfg.format_log.format = stream_obj.get("format_log", "").asString(); // "format_log": "Client address is $client_addr, $bytes_sent bytes have been sent",
+
+    std::string_view format = cfg.format_log.format;
+    while (format.contains("$")) {
+        std::size_t var_start_pos = format.find('$');
+        if (var_start_pos == std::string_view::npos) {
+            break;
+        }
+        var_start_pos += 1; // After $
+
+        const auto non_alpha_pos = std::find_if(format.begin() + var_start_pos, format.end(), [](const char el) {
+           return !std::isalpha(el) && el != '_';
+        });
+        const auto var_end_pos = static_cast<std::size_t>(std::distance(format.begin(), non_alpha_pos));
+
+        const std::string_view var_name = format.substr(var_start_pos, var_end_pos - var_start_pos);
+        cfg.format_log.used_vars.insert(LogFormat::string_to_variable(var_name));
+
+        if (var_end_pos + 1 >= format.size()) {
+            break;
+        }
+        format = format.substr(var_end_pos + 1);
+    }
+
+    // -- logs stuff
+
+    return cfg;
+}
 
 inline Config parse_config(const std::filesystem::path &path) {
     std::ifstream file{path};
@@ -127,56 +302,11 @@ inline Config parse_config(const std::filesystem::path &path) {
     if (json.isMember("stream")) {
         // parse stream settings
         const auto &stream_obj = json["stream"];
-        if (stream_obj.empty()) {
-            throw std::runtime_error("Stream is empty");
-        }
-
-        StreamConfig cfg;
-        cfg.port = static_cast<unsigned short>(stream_obj.get("port", DEFAULT_PORT).asInt());
-        cfg.timeout_ms = stream_obj.get("timeout_ms", DEFAULT_TIMEOUT).asUInt();
-        cfg.pass_to = stream_obj.get("pass_to", "").asString();
-        if (cfg.pass_to.empty()) {
-            throw std::runtime_error("Pass_to is not defined");
-        }
-
-        cfg.tls_enabled = stream_obj.get("tls_enabled", false).asBool();
-        cfg.tls_cert_path = stream_obj.get("tls_cert_path", "").asString();
-        cfg.tls_key_path = stream_obj.get("tls_key_path", "").asString();
-
-        result.server_config = cfg;
+        result.server_config = parse_stream(stream_obj);
     } else if (json.isMember("http")) {
         // parse http settings
         const auto &http_obj = json["http"];
-        if (http_obj.empty()) {
-            throw std::runtime_error("Http is empty");
-        }
-
-        HttpConfig cfg;
-        cfg.port = static_cast<unsigned short>(http_obj.get("port", DEFAULT_PORT).asInt());
-        cfg.timeout_ms = http_obj.get("timeout_ms", DEFAULT_TIMEOUT).asUInt();
-        cfg.pass_to = http_obj.get("pass_to", "").asString();
-        if (cfg.pass_to.empty()) {
-            throw std::runtime_error("Pass_to is not defined");
-        }
-
-        cfg.tls_enabled = http_obj.get("tls_enabled", false).asBool();
-        cfg.tls_cert_path = http_obj.get("tls_cert_path", "").asString();
-        if (cfg.tls_enabled && cfg.tls_cert_path.empty()) {
-            throw std::runtime_error("TLS certificate path is not specified!");
-        }
-        cfg.tls_key_path = http_obj.get("tls_key_path", "").asString();
-        if (cfg.tls_enabled && cfg.tls_key_path.empty()) {
-            throw std::runtime_error("TLS private key path is not specified!");
-        }
-
-        const auto headers_obj = http_obj["headers"];
-        if (headers_obj.isObject()) {
-            for (const auto &key: headers_obj.getMemberNames()) {
-                const Json::Value &value = headers_obj[key];
-                cfg.headers[key] = value.asString();
-            }
-        }
-        result.server_config = cfg;
+        result.server_config = parse_http(http_obj);
     } else {
         throw std::runtime_error{"Server configuration not found"};
     }
