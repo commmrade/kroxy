@@ -3,7 +3,7 @@
     "google": [{ "host": "google.com", "port": 80 }],
     "google-tls": [{ "host": "google.com", "port": 443, "tls_enabled": true }],
     "fuck_it": [{ "host": "odnoklassniki.ru", "port": 80 }],
-    "python": [{ "host":  "127.0.0.1", "port":  9999}],
+    "vk": [{ "host":  "vk.com", "port":  443, "tls_enabled":  true}],
     "httpbin": [{ "host":  "httpbin.org", "port":  80, "tls_enabled": false }]
   },
 
@@ -22,6 +22,6 @@
     "format_log": "URI: $request_uri, method $request_method, status: $status, user agent: $http_user_agent, $bytes_sent haha",
 
     "timeout_ms": 5000,
-    "pass_to": "google-tls"
+    "pass_to": "vk"
   }
 }

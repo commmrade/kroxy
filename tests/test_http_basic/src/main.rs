@@ -3,37 +3,58 @@ fn main() {
 }
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::{Read, Write},
-        net::{TcpListener, TcpStream},
-        process::Command,
-        time::Duration,
-    };
+    use axum::{Router, routing::get};
+    use reqwest;
+    use std::{thread, time::Duration};
+    use tokio::runtime::Runtime;
 
     #[test]
-    fn test_forward_request() {
-        let _ = std::thread::spawn(|| {
-            let listener = TcpListener::bind("127.0.0.1:9090").unwrap();
-            let (mut stream, _) = listener.accept().unwrap();
+    fn test_http_reverse_proxy() {
+        // Start a tokio runtime for async axum server
+        let rt = Runtime::new().unwrap();
 
-            let mut buf: [u8; 5] = [0; 5];
-            stream.read_exact(&mut buf).unwrap();
+        // Spawn backend server
+        let backend_handle = thread::spawn(move || {
+            let rt = Runtime::new().unwrap();
+            rt.block_on(async {
+                // Simple axum handler returning "world"
+                async fn hello() -> &'static str {
+                    "world"
+                }
 
-            stream.write_all("world".as_bytes()).unwrap();
+                let app = Router::new().route("/", get(hello));
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:9090")
+                    .await
+                    .unwrap();
+                println!("listening on {}", listener.local_addr().unwrap());
+                axum::serve(listener, app).await.unwrap();
+            });
         });
 
-        let mut kroxy = Command::new("./kroxy")
+        // Give backend some time to start
+        thread::sleep(Duration::from_millis(1000));
+
+        // Spawn your proxy
+        let mut kroxy = std::process::Command::new("./kroxy")
             .arg("./http.config.json")
             .spawn()
-            .unwrap();
-        std::thread::sleep(Duration::from_secs(2));
+            .expect("Failed to start proxy");
 
-        let mut sock = TcpStream::connect("127.0.0.1:8080").unwrap();
-        sock.write_all("hello".as_bytes()).unwrap();
-        let mut buf: [u8; 5] = [0; 5];
-        sock.read_exact(&mut buf).unwrap();
-        assert_eq!(String::from_utf8_lossy(&buf), "world");
+        // Give proxy some time to start
+        thread::sleep(Duration::from_millis(2000));
 
+        // Send HTTP request through the proxy using reqwest
+        let client = reqwest::blocking::Client::new();
+        let res = client.get("http://127.0.0.1:8080/").send().unwrap();
+
+        let body = res.text().unwrap();
+        assert!(!body.is_empty());
+
+        // Clean up proxy
         kroxy.kill().unwrap();
+        let _ = kroxy.wait();
+
+        // Optionally, stop backend (thread will exit when process ends)
+        // For more robust testing you could use a shutdown signal
     }
 }

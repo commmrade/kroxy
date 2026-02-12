@@ -21,8 +21,7 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(kroxy src/main.cpp
         src/logger.cpp
-        src/logger.hpp
-        tests/test_config.cpp)
+        src/logger.hpp)
 
 target_include_directories(kroxy PRIVATE
     ${LIBURING_INCLUDE_DIRS}
