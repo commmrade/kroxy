@@ -27,7 +27,13 @@ private:
             auto &msg = request_p_.value().get();
             request_uri_.emplace(msg.base().target());
             request_method_.emplace(msg.base().method_string());
-            user_agent_.emplace(msg.at(boost::beast::http::field::user_agent));
+            if (auto it = msg.find(boost::beast::http::field::user_agent);
+                it != msg.end()) {
+                user_agent_.emplace(it->value());
+            } else {
+                user_agent_.emplace();
+            }
+
 
             process_headers(msg);
             request_s_.emplace(msg);
