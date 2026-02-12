@@ -176,6 +176,31 @@ struct Config {
     }
 };
 
+inline std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format) {
+    std::unordered_set<LogFormat::Variable> result;
+    while (format.contains("$")) {
+        std::size_t var_start_pos = format.find('$');
+        if (var_start_pos == std::string_view::npos) {
+            break;
+        }
+        var_start_pos += 1; // After $
+
+        const auto non_alpha_pos = std::find_if(format.begin() + var_start_pos, format.end(), [](const char el) {
+           return !std::isalpha(el) && el != '_';
+        });
+        const auto var_end_pos = static_cast<std::size_t>(std::distance(format.begin(), non_alpha_pos));
+
+        const std::string_view var_name = format.substr(var_start_pos, var_end_pos - var_start_pos);
+        result.insert(LogFormat::string_to_variable(var_name));
+
+        if (var_end_pos + 1 >= format.size()) {
+            break;
+        }
+        format = format.substr(var_end_pos + 1);
+    }
+    return result;
+}
+
 inline HttpConfig parse_http(const Json::Value& http_obj) {
     if (http_obj.empty()) {
         throw std::runtime_error("Http is empty");
@@ -200,32 +225,7 @@ inline HttpConfig parse_http(const Json::Value& http_obj) {
     }
 
     // Logs stuff
-    cfg.file_log = http_obj.get("file_log", "").asString();
-    cfg.format_log.format = http_obj.get("format_log", "").asString(); // "format_log": "Client address is $client_addr, $bytes_sent bytes have been sent",
-
-    std::string_view format = cfg.format_log.format;
-    while (format.contains("$")) {
-        std::size_t var_start_pos = format.find('$');
-        if (var_start_pos == std::string_view::npos) {
-            break;
-        }
-        var_start_pos += 1; // After $
-
-        const auto non_alpha_pos = std::find_if(format.begin() + var_start_pos, format.end(), [](const char el) {
-           return !std::isalpha(el) && el != '_';
-        });
-        const auto var_end_pos = static_cast<std::size_t>(std::distance(format.begin(), non_alpha_pos));
-
-        const std::string_view var_name = format.substr(var_start_pos, var_end_pos - var_start_pos);
-        cfg.format_log.used_vars.insert(LogFormat::string_to_variable(var_name));
-
-        if (var_end_pos + 1 >= format.size()) {
-            break;
-        }
-        format = format.substr(var_end_pos + 1);
-    }
-
-    // -- logs stuff
+    cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
 
     const auto& headers_obj = http_obj["headers"];
     if (headers_obj.isObject()) {
@@ -253,33 +253,7 @@ inline StreamConfig parse_stream(const Json::Value& stream_obj) {
     cfg.tls_cert_path = stream_obj.get("tls_cert_path", "").asString();
     cfg.tls_key_path = stream_obj.get("tls_key_path", "").asString();
 
-    // Logs stuff
-    cfg.file_log = stream_obj.get("file_log", "").asString();
-    cfg.format_log.format = stream_obj.get("format_log", "").asString(); // "format_log": "Client address is $client_addr, $bytes_sent bytes have been sent",
-
-    std::string_view format = cfg.format_log.format;
-    while (format.contains("$")) {
-        std::size_t var_start_pos = format.find('$');
-        if (var_start_pos == std::string_view::npos) {
-            break;
-        }
-        var_start_pos += 1; // After $
-
-        const auto non_alpha_pos = std::find_if(format.begin() + var_start_pos, format.end(), [](const char el) {
-           return !std::isalpha(el) && el != '_';
-        });
-        const auto var_end_pos = static_cast<std::size_t>(std::distance(format.begin(), non_alpha_pos));
-
-        const std::string_view var_name = format.substr(var_start_pos, var_end_pos - var_start_pos);
-        cfg.format_log.used_vars.insert(LogFormat::string_to_variable(var_name));
-
-        if (var_end_pos + 1 >= format.size()) {
-            break;
-        }
-        format = format.substr(var_end_pos + 1);
-    }
-
-    // -- logs stuff
+    cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
 
     return cfg;
 }
