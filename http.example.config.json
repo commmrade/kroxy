@@ -18,8 +18,8 @@
     "tls_cert_path": "../tls/certificate.crt",
     "tls_key_path": "../tls/private.key",
 
-    "file_log": "/dev/stdout",
-    "format_log": "URI: $request_uri, status: $status, user agent: $http_user_agent",
+    "file_log": "./fuck.txt",
+    "format_log": "URI: $request_uri, status: $status, user agent: $http_user_agent, $bytes_sent haha",
 
     "timeout_ms": 5000,
     "pass_to": "google-tls"

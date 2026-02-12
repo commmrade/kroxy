@@ -16,7 +16,7 @@ class HttpSession : public Session, public std::enable_shared_from_this<HttpSess
 private:
     template<bool isRequest, class Body>
     void process_headers(boost::beast::http::message<isRequest, Body> &msg) {
-        // TODO: normal implementation, for now its mock
+        // TODO: real implementation, for now its mock
         msg.set(boost::beast::http::field::user_agent, "kroxy/0.1 (klewy)");
     }
 
@@ -25,8 +25,8 @@ private:
     void do_read_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
             auto &msg = request_p_.value().get();
-            request_uri_ = msg.base().target();
-            user_agent_ = msg.at(boost::beast::http::field::user_agent);
+            request_uri_.emplace(msg.base().target());
+            user_agent_.emplace(msg.at(boost::beast::http::field::user_agent));
 
             process_headers(msg);
             request_s_.emplace(msg);
@@ -54,13 +54,15 @@ private:
 
     void do_write_service_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
-            bytes_sent_ += bytes_tf;
+            bytes_sent_.value() += bytes_tf;
 
             if (!request_p_->is_done()) {
                 upstream_state_ = State::BODY;
 
                 request_p_->get().body().data = us_buf_.data();
                 request_p_->get().body().size = us_buf_.size();
+            } else {
+                check_log();
             }
             do_upstream();
         } else {
@@ -99,9 +101,11 @@ private:
 
     void do_write_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (errc == boost::beast::http::error::need_buffer || !errc) {
-            bytes_sent_ += bytes_tf;
+            bytes_sent_.value() += bytes_tf;
 
             if (request_p_->is_done() && request_s_->is_done()) {
+                std::println("upstream done");
+                check_log();
                 // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on parser or serializer)
                 upstream_state_ = State::HEADERS;
             }
@@ -120,6 +124,7 @@ private:
             case State::HEADERS: {
                 request_p_.emplace();
                 upstream_buf_.clear();
+                start_time_.emplace(std::chrono::high_resolution_clock::now());
 
                 client_sock_.async_read_header(upstream_buf_, *request_p_,
                                                [self = shared_from_this(), this](
@@ -148,7 +153,7 @@ private:
     void do_read_service_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
             auto &msg = response_p_.value().get();
-            http_status_ = static_cast<unsigned int>(msg.base().result());
+            http_status_.emplace(static_cast<unsigned int>(msg.base().result()));
 
             response_s_.emplace(msg);
             client_sock_.async_write_header(*response_s_,
@@ -174,7 +179,7 @@ private:
 
     void do_write_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         if (!errc) {
-            bytes_sent_ += bytes_tf;
+            bytes_sent_.value() += bytes_tf;
 
             // Now we need to start reading the body, considering we may have body bytes in upstream_buf_
             if (!response_p_->is_done()) {
@@ -182,6 +187,8 @@ private:
 
                 response_p_->get().body().data = ds_buf_.data();
                 response_p_->get().body().size = ds_buf_.size();
+            } else {
+                check_log();
             }
             do_downstream();
         } else {
@@ -221,9 +228,12 @@ private:
     void do_write_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
         std::println("Write client body {} bytes", bytes_tf);
         if (boost::beast::http::error::need_buffer == errc || !errc) {
-            bytes_sent_ += bytes_tf;
+            bytes_sent_.value() += bytes_tf;
+
 
             if (response_p_->is_done() && response_s_->is_done()) {
+                std::println("downstream done");
+                check_log();
                 downstream_state_ = State::HEADERS;
             }
             response_p_->get().body().size = ds_buf_.size();
@@ -266,9 +276,10 @@ private:
             }
         }
     }
+
 public:
     HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
-                boost::asio::ssl::context&& ssl_clnt_ctx, bool is_client_tls, bool is_service_tls)
+                boost::asio::ssl::context &&ssl_clnt_ctx, bool is_client_tls, bool is_service_tls)
         : Session(ctx, ssl_srv_ctx, std::move(ssl_clnt_ctx), is_service_tls, is_client_tls), cfg_(cfg) {
         if (!cfg_.file_log.empty()) {
             logger_.emplace(cfg_.file_log);
@@ -280,7 +291,7 @@ public:
     HttpSession &operator=(const HttpSession &) = delete;
 
     ~HttpSession() override {
-        log();
+        // log();
     }
 
     void run() override {
@@ -296,51 +307,69 @@ public:
         ).async_wait(
             boost::asio::experimental::wait_for_all(),
             [self = shared_from_this(), this](
-                std::array<std::size_t, 2> /*completion_order*/,
-                boost::system::error_code ec_client,
-                boost::system::error_code ec_service
-            ) {
-                if (ec_client) { std::println("Client handshake failed: {}", ec_client.message()); return; }
-                if (ec_service) { std::println("Service handshake failed: {}", ec_service.message()); return; }
+        std::array<std::size_t, 2> /*completion_order*/,
+        boost::system::error_code ec_client,
+        boost::system::error_code ec_service
+    ) {
+                if (ec_client) {
+                    std::println("Client handshake failed: {}", ec_client.message());
+                    return;
+                }
+                if (ec_service) {
+                    std::println("Service handshake failed: {}", ec_service.message());
+                    return;
+                }
                 std::println("Both TLS handshakes successful");
 
                 do_upstream();
                 do_downstream();
 
-                start_time_ = std::chrono::high_resolution_clock::now();
+                start_time_.emplace(std::chrono::high_resolution_clock::now());
+                bytes_sent_.emplace(0);
             }
         );
     }
 
 private:
+    void check_log() {
+        if (bytes_sent_.has_value() &&
+            start_time_.has_value() &&
+            request_uri_.has_value() &&
+            http_status_.has_value() &&
+            user_agent_.has_value()) {
+            log();
+        }
+    }
+
     void log() {
         if (logger_.has_value()) {
             std::string log_msg = cfg_.format_log.format;
-            for (const auto var : cfg_.format_log.used_vars) {
+            for (const auto var: cfg_.format_log.used_vars) {
                 switch (var) {
                     case LogFormat::Variable::CLIENT_ADDR: {
                         replace_variable(log_msg, var, client_sock_.socket().local_endpoint().address().to_string());
                         break;
                     }
                     case LogFormat::Variable::BYTES_SENT: {
-                        replace_variable(log_msg, var, std::to_string(bytes_sent_));;
+                        replace_variable(log_msg, var, std::to_string(bytes_sent_.value()));;
                         break;
                     }
                     case LogFormat::Variable::PROCESSING_TIME: {
-                        auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_);
+                        auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::high_resolution_clock::now() - start_time_.value());
                         replace_variable(log_msg, var, std::format("{}ms", diff.count()));
                         break;
                     }
                     case LogFormat::Variable::REQUEST_URI: {
-                        replace_variable(log_msg, var, request_uri_);
+                        replace_variable(log_msg, var, request_uri_.value());
                         break;
                     }
                     case LogFormat::Variable::STATUS: {
-                        replace_variable(log_msg, var, std::to_string(http_status_));
+                        replace_variable(log_msg, var, std::to_string(http_status_.value()));
                         break;
                     }
                     case LogFormat::Variable::HTTP_USER_AGENT: {
-                        replace_variable(log_msg, var, user_agent_);
+                        replace_variable(log_msg, var, user_agent_.value());
                         break;
                     }
                     default: {
@@ -349,6 +378,12 @@ private:
                 }
             }
             logger_.value().write(log_msg);
+
+            bytes_sent_.emplace(0);
+            start_time_.reset();
+            request_uri_.reset();
+            http_status_.reset();
+            user_agent_.reset();
         }
     }
 
@@ -376,9 +411,9 @@ private:
 
     // Logging stuff
     std::optional<Logger> logger_; // May not be used, if file_log is null
-    std::size_t bytes_sent_{};
-    std::chrono::time_point<std::chrono::system_clock> start_time_;
-    std::string request_uri_;
-    unsigned int http_status_{};
-    std::string user_agent_;
+    std::optional<std::size_t> bytes_sent_{};
+    std::optional<std::chrono::time_point<std::chrono::system_clock> > start_time_;
+    std::optional<std::string> request_uri_;
+    std::optional<unsigned int> http_status_{};
+    std::optional<std::string> user_agent_;
 };

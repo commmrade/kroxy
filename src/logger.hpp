@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <print>
 
 #include "config.hpp"
 
@@ -22,7 +23,17 @@ class Logger
         m_file.flush();// std::ofstream destructor does not flush
     }
 
-    void write(std::string_view msg) { m_file << msg << '\n'; }
+    Logger(const Logger &) = delete;
+
+    Logger(Logger &&) = delete;
+
+    Logger& operator=(const Logger &) = delete;
+
+    Logger& operator=(Logger&&) = delete;
+
+    void write(std::string_view msg) {
+        m_file << msg << '\n';
+    }
 
   private:
     std::ofstream m_file;
