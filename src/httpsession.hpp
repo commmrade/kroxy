@@ -81,7 +81,7 @@ private:
     }
 
     void do_read_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        if (!errc) {
+        if (boost::beast::http::error::need_buffer == errc || !errc) {
             request_p_->get().body().size = us_buf_.size() - request_p_->get().body().size;
             request_p_->get().body().data = us_buf_.data();
             request_p_->get().body().more = !request_p_->is_done();
@@ -206,7 +206,7 @@ private:
     }
 
     void do_read_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        if (!errc) {
+        if (boost::beast::http::error::need_buffer == errc || !errc) {
             response_p_->get().body().size = ds_buf_.size() - response_p_->get().body().size;
             response_p_->get().body().data = ds_buf_.data();
             response_p_->get().body().more = !response_p_->is_done();
