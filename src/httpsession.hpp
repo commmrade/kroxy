@@ -232,7 +232,6 @@ private:
     }
 
     void do_write_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        std::println("Write client body {} bytes", bytes_tf);
         if (boost::beast::http::error::need_buffer == errc || !errc) {
             bytes_sent_.value() += bytes_tf;
 
