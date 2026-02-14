@@ -6,10 +6,19 @@ app = Flask(__name__)
 
 
 def generate_chunks():
-    chunks = ["this ", "is ", "a ", "chunked ", "response"]
+    chunks = [
+        "this ",
+        "is ",
+        "a ",
+        "chunked ",
+        "response",
+        "sdfkljajladjshkljklaSJKLDDKSHJKSADJSAHJSKADSJAHKLSAJHKLdsadhgaghasdhgkjsaghjkadghjkdgahkjsdgkahsjdghsjadgshjag",
+        "dsajdajsajksajhksahjksahjk",
+        "filler" * 400,
+    ]
     for chunk in chunks:
         yield chunk
-        time.sleep(0.1)
+        time.sleep(0.4)
 
 
 @app.route("/")

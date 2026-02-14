@@ -12,7 +12,22 @@ class TestForwardingRequest(unittest.TestCase):
         # stream=True ensures we read chunked response incrementally
         resp = requests.get(BASE_URL + "/", stream=True)
         data = "".join(chunk.decode() for chunk in resp.iter_content(chunk_size=None))
-        self.assertEqual(data, "this is a chunked response")
+
+        chunks = [
+            "this ",
+            "is ",
+            "a ",
+            "chunked ",
+            "response",
+            "sdfkljajladjshkljklaSJKLDDKSHJKSADJSAHJSKADSJAHKLSAJHKLdsadhgaghasdhgkjsaghjkadghjkdgahkjsdgkahsjdghsjadgshjag",
+            "dsajdajsajksajhksahjksahjk",
+            "filler" * 400,
+        ]
+        full_msg = ""
+        for chunk in chunks:
+            full_msg += chunk
+
+        self.assertEqual(data, full_msg)
 
 
 if __name__ == "__main__":
