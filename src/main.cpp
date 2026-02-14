@@ -40,11 +40,18 @@ private:
     std::shared_ptr<Session> make_session(Host &host) {
         if (cfg_.is_stream()) {
             if (host.tls_enabled) {
+                StreamConfig& cfg = std::get<StreamConfig>(cfg_.server_config);
+
                 boost::asio::ssl::context ssl_clnt_ctx{boost::asio::ssl::context_base::tls_client};
-                ssl_clnt_ctx.set_default_verify_paths();
                 ssl_clnt_ctx.set_verify_mode(boost::asio::ssl::verify_peer);
 
-                auto result =  std::make_shared<StreamSession>(std::get<StreamConfig>(cfg_.server_config),ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
+                ssl_clnt_ctx.set_default_verify_paths();
+                if (cfg.pass_tls_enabled) {
+                    ssl_clnt_ctx.use_certificate_chain_file(cfg.pass_tls_cert_path);
+                    ssl_clnt_ctx.use_private_key_file(cfg.pass_tls_key_path, boost::asio::ssl::context::file_format::pem);
+                }
+
+                auto result =  std::make_shared<StreamSession>(cfg, ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
                 result->get_service().set_sni(host.host);
 
                 return result;
@@ -54,11 +61,18 @@ private:
             }
         } else {
             if (host.tls_enabled) {
+                HttpConfig& cfg = std::get<HttpConfig>(cfg_.server_config);
                 boost::asio::ssl::context ssl_clnt_ctx{boost::asio::ssl::context_base::tls_client};
+
+                if (cfg.pass_tls_enabled) {
+                    ssl_clnt_ctx.use_certificate_chain_file(cfg.pass_tls_cert_path);
+                    ssl_clnt_ctx.use_private_key_file(cfg.pass_tls_key_path, boost::asio::ssl::context::file_format::pem);
+                }
+
                 ssl_clnt_ctx.set_default_verify_paths();
                 ssl_clnt_ctx.set_verify_mode(boost::asio::ssl::verify_peer);
 
-                auto result = std::make_shared<HttpSession>(std::get<HttpConfig>(cfg_.server_config), ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
+                auto result = std::make_shared<HttpSession>(cfg, ctx_, ssl_ctx_, std::move(ssl_clnt_ctx), cfg_.is_tls_enabled(), host.tls_enabled);
                 result->get_service().set_sni(host.host);
 
                 return result;

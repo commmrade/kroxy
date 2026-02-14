@@ -88,9 +88,15 @@ struct StreamConfig {
     std::size_t timeout_ms{};
     std::string pass_to;
 
+    // kroxy server tls stuff
     bool tls_enabled{};
     std::string tls_cert_path;
     std::string tls_key_path;
+
+    // kroxy as client tls stuff
+    bool pass_tls_enabled{};
+    std::string pass_tls_cert_path;
+    std::string pass_tls_key_path;
 
     std::string file_log;
     LogFormat format_log;
@@ -106,6 +112,11 @@ struct HttpConfig {
     bool tls_enabled{};
     std::string tls_cert_path;
     std::string tls_key_path;
+
+    // kroxy as client tls stuff
+    bool pass_tls_enabled{};
+    std::string pass_tls_cert_path;
+    std::string pass_tls_key_path;
 
     std::string file_log;
     LogFormat format_log;
@@ -222,6 +233,13 @@ inline HttpConfig parse_http(const Json::Value& http_obj) {
         throw std::runtime_error("TLS enabled, but tls_cert_path or tls_key_path is empty");
     }
 
+    cfg.pass_tls_enabled = http_obj.get("pass_tls_enabled", false).asBool();
+    cfg.pass_tls_cert_path = http_obj.get("pass_tls_cert_path", "").asString();
+    cfg.pass_tls_key_path = http_obj.get("pass_tls_key_path", "").asString();
+
+    if (cfg.pass_tls_enabled && (cfg.pass_tls_cert_path.empty() || cfg.pass_tls_key_path.empty())) {
+        throw std::runtime_error("TLS enabled, but pass_cert_path or pass_key_path is empty");
+    }
 
     // Logs stuff
     cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
@@ -254,6 +272,14 @@ inline StreamConfig parse_stream(const Json::Value& stream_obj) {
 
     if (cfg.tls_enabled && (cfg.tls_cert_path.empty() || cfg.tls_key_path.empty())) {
         throw std::runtime_error("TLS enabled, but tls_cert_path or tls_key_path is empty");
+    }
+
+    cfg.pass_tls_enabled = stream_obj.get("pass_tls_enabled", false).asBool();
+    cfg.pass_tls_cert_path = stream_obj.get("pass_tls_cert_path", "").asString();
+    cfg.pass_tls_key_path = stream_obj.get("pass_tls_key_path", "").asString();
+
+    if (cfg.pass_tls_enabled && (cfg.pass_tls_cert_path.empty() || cfg.pass_tls_key_path.empty())) {
+        throw std::runtime_error("TLS enabled, but pass_cert_path or pass_key_path is empty");
     }
 
     cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
