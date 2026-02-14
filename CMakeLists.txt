@@ -11,9 +11,13 @@ find_package(OpenSSL REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
 pkg_check_modules(JSONCPP REQUIRED jsoncpp)
 
-
-# json-cpp
-# find_package(jsoncpp REQUIRED)
+include(FetchContent)
+FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/releases/download/v1.17.0/googletest-1.17.0.tar.gz
+)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
 
 add_executable(kroxy src/main.cpp
         src/logger.cpp
@@ -51,3 +55,19 @@ target_link_libraries(kroxy PRIVATE
 )
 
 target_include_directories(kroxy PRIVATE ${JSONCPP_INCLUDE_DIRS})
+
+# Testing
+enable_testing()
+
+add_executable(kroxy_test tests/test_config.cpp)
+
+target_link_libraries(kroxy_test PRIVATE
+        Boost::boost
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        ${LIBURING_LIBRARIES}
+        ${JSONCPP_LIBRARIES}
+        GTest::gtest_main
+)
+include(GoogleTest)
+gtest_discover_tests(kroxy_test)

@@ -64,9 +64,9 @@ public:
     }
 
     template<typename DynamicBuffer, typename Parser, typename CompletionToken>
-    void async_read_some_message(DynamicBuffer &buf, Parser &ps, CompletionToken &&token) {
+    void async_read_message(DynamicBuffer &buf, Parser &ps, CompletionToken &&token) {
         std::visit([&buf, &ps, token = std::forward<CompletionToken>(token)](auto &&stream) mutable {
-            boost::beast::http::async_read_some(stream, buf, ps, std::move(token));
+            boost::beast::http::async_read(stream, buf, ps, std::move(token));
         }, stream_);
     }
 

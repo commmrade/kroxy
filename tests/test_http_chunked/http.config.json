@@ -1,0 +1,8 @@
+{
+  "servers": { "service": [{ "host": "127.0.0.1", "port": 9090 }] },
+  "http": {
+    "port": 8080,
+    "timeout_ms": 500,
+    "pass_to": "service"
+  }
+}

@@ -27,7 +27,13 @@ private:
             auto &msg = request_p_.value().get();
             request_uri_.emplace(msg.base().target());
             request_method_.emplace(msg.base().method_string());
-            user_agent_.emplace(msg.at(boost::beast::http::field::user_agent));
+            if (auto it = msg.find(boost::beast::http::field::user_agent);
+                it != msg.end()) {
+                user_agent_.emplace(it->value());
+            } else {
+                user_agent_.emplace();
+            }
+
 
             process_headers(msg);
             request_s_.emplace(msg);
@@ -75,7 +81,7 @@ private:
     }
 
     void do_read_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        if (!errc) {
+        if (boost::beast::http::error::need_buffer == errc || !errc) {
             request_p_->get().body().size = us_buf_.size() - request_p_->get().body().size;
             request_p_->get().body().data = us_buf_.data();
             request_p_->get().body().more = !request_p_->is_done();
@@ -135,7 +141,7 @@ private:
                 break;
             }
             case State::BODY: {
-                client_sock_.async_read_some_message(upstream_buf_, *request_p_,
+                client_sock_.async_read_message(upstream_buf_, *request_p_,
                                                      [self = shared_from_this(), this](
                                                  const boost::system::error_code &errc, std::size_t bytes_tf) {
                                                          do_read_client_body(errc, bytes_tf);
@@ -200,7 +206,7 @@ private:
     }
 
     void do_read_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        if (!errc) {
+        if (boost::beast::http::error::need_buffer == errc || !errc) {
             response_p_->get().body().size = ds_buf_.size() - response_p_->get().body().size;
             response_p_->get().body().data = ds_buf_.data();
             response_p_->get().body().more = !response_p_->is_done();
@@ -226,7 +232,6 @@ private:
     }
 
     void do_write_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
-        std::println("Write client body {} bytes", bytes_tf);
         if (boost::beast::http::error::need_buffer == errc || !errc) {
             bytes_sent_.value() += bytes_tf;
 
@@ -261,7 +266,7 @@ private:
                 break;
             }
             case State::BODY: {
-                service_sock_.async_read_some_message(downstream_buf_, *response_p_,
+                service_sock_.async_read_message(downstream_buf_, *response_p_,
                                                       [self = shared_from_this(), this](
                                                   const boost::system::error_code &errc,
                                                   [[maybe_unused]] std::size_t bytes_tf) {
