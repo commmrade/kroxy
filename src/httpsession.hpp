@@ -141,7 +141,7 @@ private:
                 break;
             }
             case State::BODY: {
-                client_sock_.async_read_some_message(upstream_buf_, *request_p_,
+                client_sock_.async_read_message(upstream_buf_, *request_p_,
                                                      [self = shared_from_this(), this](
                                                  const boost::system::error_code &errc, std::size_t bytes_tf) {
                                                          do_read_client_body(errc, bytes_tf);
@@ -266,7 +266,7 @@ private:
                 break;
             }
             case State::BODY: {
-                service_sock_.async_read_some_message(downstream_buf_, *response_p_,
+                service_sock_.async_read_message(downstream_buf_, *response_p_,
                                                       [self = shared_from_this(), this](
                                                   const boost::system::error_code &errc,
                                                   [[maybe_unused]] std::size_t bytes_tf) {
