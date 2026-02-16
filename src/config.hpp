@@ -23,9 +23,10 @@ struct UpstreamOptions {
     std::optional<std::string> pass_tls_key_path;
 };
 
-enum class LoadBalancingAlgo {
+enum class LoadBalancingAlgo : std::uint8_t {
     ROUND_ROBIN,
     FIRST,
+    LEAST_CONN
 };
 
 struct Upstream {
@@ -374,14 +375,16 @@ inline Config parse_config(const std::filesystem::path &path) {
                 pass_tls_key_path = block["pass_tls_key_path"].asString();
             }
 
-            LoadBalancingAlgo algo = [&block]() -> LoadBalancingAlgo {
-                std::string algo_str = block["balancing_algo"].asString();
-                if (algo_str == "rb") {
-                    return LoadBalancingAlgo::ROUND_ROBIN;
-                } else if (algo_str == "first") {
+            LoadBalancingAlgo const algo = [&block]() -> LoadBalancingAlgo {
+                std::string const algo_str = block["balancing_algo"].asString();
+                if (algo_str == "first") {
                     return LoadBalancingAlgo::FIRST;
-                } else {
+                } else if (algo_str == "least_conn") {
+                    return LoadBalancingAlgo::LEAST_CONN;
+                } else if (algo_str == "round_robin" || algo_str.empty()) {
                     return LoadBalancingAlgo::ROUND_ROBIN;
+                } else {
+                    throw std::runtime_error("Unknown balancing algorithm");
                 }
             }();
 

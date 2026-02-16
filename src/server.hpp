@@ -9,90 +9,9 @@
 
 #include "config.hpp"
 #include "httpsession.hpp"
+#include "selectors.hpp"
 #include "session.hpp"
 #include "streamsession.hpp"
-
-class UpstreamSelector {
-public:
-    virtual ~UpstreamSelector() = default;
-
-    void set_upstream(const Upstream &serv) {
-        serv_ = serv;
-    }
-
-    UpstreamOptions options() const {
-        return serv_.options;
-    }
-
-    virtual std::pair<Host, std::size_t> select_host() = 0;
-
-    virtual void disconnect_host(unsigned int index) {
-        // This might not be used by every algorithm (Round-robin f.e), but it may be used by least connection algo
-    }
-
-protected:
-    Upstream serv_;
-};
-
-class FirstSelector : public UpstreamSelector {
-public:
-    std::pair<Host, std::size_t> select_host() override {
-        return {serv_.hosts[0], 0};
-    }
-};
-
-template<>
-struct std::hash<Host> {
-    std::size_t operator()(const Host &x) const noexcept {
-        std::size_t h1 = std::hash<std::string>{}(x.host);
-        std::size_t h2 = std::hash<unsigned short>{}(x.port);
-        return h1 ^ (h2 << 1);
-    }
-};
-
-class LeastConnectionSelector : public UpstreamSelector {
-public:
-    std::pair<Host, std::size_t> select_host() override {
-        if (conns_.empty()) {
-            conns_.resize(serv_.hosts.size(), 0);
-        }
-
-        auto idx = best_index();
-        auto host = serv_.hosts[idx];
-        std::println("Idx: {}", idx);
-        return {host, idx};
-    }
-
-    void disconnect_host(unsigned int index) override {
-        std::println("disconnect idx: {}", index);
-        --conns_[index];
-    }
-
-    std::size_t best_index() {
-        std::size_t idx = static_cast<std::size_t>(std::distance(conns_.begin(), std::ranges::min_element(conns_)));
-        ++conns_[idx];
-        return idx;
-    }
-
-private:
-    std::vector<unsigned int> conns_;
-};
-
-class RoundRobinSelector : public UpstreamSelector {
-public:
-    std::pair<Host, std::size_t> select_host() override {
-        if (cur_host_idx_ >= serv_.hosts.size()) {
-            cur_host_idx_ = 0;
-        }
-        auto host = serv_.hosts[cur_host_idx_];
-        auto idx = cur_host_idx_;
-        ++cur_host_idx_;
-        return {host, idx};
-    }
-
-private:
-    unsigned int cur_host_idx_{0};
-};
 
 
 class Server {
@@ -113,13 +32,14 @@ private:
 
         if (cfg_.is_stream()) {
             auto &cfg = std::get<StreamConfig>(cfg_.server_config);
-            bool pass_tls = upstream_options.pass_tls_enabled.value_or(cfg.pass_tls_enabled);
+            bool const pass_tls = upstream_options.pass_tls_enabled.value_or(cfg.pass_tls_enabled);
 
             boost::asio::ssl::context ssl_clnt_ctx{boost::asio::ssl::context_base::tls_client};
 
             if (pass_tls) {
-                if (upstream_options.pass_tls_verify.value_or(cfg.pass_tls_verify))
+                if (upstream_options.pass_tls_verify.value_or(cfg.pass_tls_verify)) {
                     ssl_clnt_ctx.set_verify_mode(boost::asio::ssl::verify_peer);
+                }
 
                 ssl_clnt_ctx.set_default_verify_paths();
 
@@ -135,32 +55,34 @@ private:
                 }
             }
 
-            auto raw = new StreamSession(cfg, ctx_, ssl_ctx_, std::move(ssl_clnt_ctx),
+            auto *raw = new StreamSession(cfg, ctx_, ssl_ctx_, std::move(ssl_clnt_ctx),
                                          cfg.tls_enabled, pass_tls);
 
             auto [host, host_idx] = upstream_selector_->select_host();
 
-            if (raw->get_service().is_tls())
+            if (raw->get_service().is_tls()) {
                 raw->get_service().set_sni(host.host);
+            }
 
             auto deleter = [selector = upstream_selector_, host_idx](Session *ptr) {
-                selector->disconnect_host(host_idx);
+                selector->disconnect_host(static_cast<unsigned int>(host_idx));
                 delete ptr;
             };
 
-            std::shared_ptr<StreamSession> derived_ptr(raw, deleter);
-            std::shared_ptr<Session> session_ptr = derived_ptr; // приводим к базовому Session
+            std::shared_ptr<StreamSession> const derived_ptr(raw, deleter);
+            std::shared_ptr<Session> const session_ptr = derived_ptr; // приводим к базовому Session
 
             return {session_ptr, host};
         } else {
             auto &cfg = std::get<HttpConfig>(cfg_.server_config);
-            bool pass_tls = upstream_options.pass_tls_enabled.value_or(cfg.pass_tls_enabled);
+            bool const pass_tls = upstream_options.pass_tls_enabled.value_or(cfg.pass_tls_enabled);
 
             boost::asio::ssl::context ssl_clnt_ctx{boost::asio::ssl::context_base::tls_client};
 
             if (pass_tls) {
-                if (upstream_options.pass_tls_verify.value_or(cfg.pass_tls_verify))
+                if (upstream_options.pass_tls_verify.value_or(cfg.pass_tls_verify)) {
                     ssl_clnt_ctx.set_verify_mode(boost::asio::ssl::verify_peer);
+                }
 
                 ssl_clnt_ctx.set_default_verify_paths();
 
@@ -176,21 +98,22 @@ private:
                 }
             }
 
-            auto raw = new HttpSession(cfg, ctx_, ssl_ctx_, std::move(ssl_clnt_ctx),
+            auto *raw = new HttpSession(cfg, ctx_, ssl_ctx_, std::move(ssl_clnt_ctx),
                                        cfg.tls_enabled, pass_tls);
 
             auto [host, host_idx] = upstream_selector_->select_host();
 
-            if (raw->get_service().is_tls())
+            if (raw->get_service().is_tls()) {
                 raw->get_service().set_sni(host.host);
+            }
 
             auto deleter = [selector = upstream_selector_, host_idx](Session *ptr) {
-                selector->disconnect_host(host_idx);
+                selector->disconnect_host(static_cast<unsigned int>(host_idx));
                 delete ptr;
             };
 
-            std::shared_ptr<HttpSession> derived_ptr(raw, deleter);
-            std::shared_ptr<Session> session_ptr = derived_ptr;
+            std::shared_ptr<HttpSession> const derived_ptr(raw, deleter);
+            std::shared_ptr<Session> const session_ptr = derived_ptr;
 
             return {session_ptr, host};
         }
@@ -237,19 +160,22 @@ private:
                                });
     }
 
-    void update_lb_algo() {
-        // const auto lb_algo = cfg_.get_servers_block().lb_algo;
-        // switch (lb_algo) {
-        //     case LoadBalancingAlgo::ROUND_ROBIN: {
-        //         upstream_selector_ = std::make_unique<RoundRobinSelector>();
-        //         break;
-        //     }
-        //     case LoadBalancingAlgo::FIRST: {
-        //         upstream_selector_ = std::make_unique<FirstSelector>();
-        //         break;
-        //     }
-        // }
-        upstream_selector_ = std::make_shared<LeastConnectionSelector>();
+    void set_lb_algo() {
+        const auto lb_algo = cfg_.get_servers_block().lb_algo;
+        switch (lb_algo) {
+            case LoadBalancingAlgo::ROUND_ROBIN: {
+                upstream_selector_ = std::make_unique<RoundRobinSelector>();
+                break;
+            }
+            case LoadBalancingAlgo::FIRST: {
+                upstream_selector_ = std::make_unique<FirstSelector>();
+                break;
+            }
+            case LoadBalancingAlgo::LEAST_CONN: {
+                upstream_selector_ = std::make_unique<LeastConnectionSelector>();
+                break;
+            }
+        }
     }
 
 public:
@@ -257,7 +183,7 @@ public:
         const auto port = cfg_.get_port();
         setup_socket(ctx, port);
 
-        update_lb_algo();
+        set_lb_algo();
         upstream_selector_->set_upstream(cfg_.get_servers_block());
 
         if (cfg_.is_tls_enabled()) {
