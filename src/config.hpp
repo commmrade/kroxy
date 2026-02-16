@@ -14,7 +14,11 @@
 struct Host {
     std::string host;
     unsigned short port{};
-    bool tls_enabled{};
+
+    std::optional<bool> pass_tls_enabled;
+    std::optional<bool> pass_tls_verify; // verifies serv. cert
+    std::optional<std::string> pass_tls_cert_path;
+    std::optional<std::string> pass_tls_key_path;
 };
 
 struct Servers {
@@ -88,9 +92,17 @@ struct StreamConfig {
     std::size_t timeout_ms{};
     std::string pass_to;
 
+    // kroxy server tls stuff
     bool tls_enabled{};
     std::string tls_cert_path;
     std::string tls_key_path;
+    bool tls_verify_client{};
+
+    // kroxy as client tls stuff
+    bool pass_tls_enabled{};
+    std::string pass_tls_cert_path;
+    std::string pass_tls_key_path;
+    bool pass_tls_verify{};
 
     std::string file_log;
     LogFormat format_log;
@@ -103,9 +115,17 @@ struct HttpConfig {
     std::size_t timeout_ms{};
     std::string pass_to;
 
+    // kroxy server tls stuff
     bool tls_enabled{};
     std::string tls_cert_path;
     std::string tls_key_path;
+    bool tls_verify_client{};
+
+    // kroxy as client tls stuff
+    bool pass_tls_enabled{};
+    std::string pass_tls_cert_path;
+    std::string pass_tls_key_path;
+    bool pass_tls_verify{};
 
     std::string file_log;
     LogFormat format_log;
@@ -174,6 +194,16 @@ struct Config {
             return serv_cfg.tls_key_path;
         }
     }
+
+    bool get_tls_verify_client() const {
+        if (std::holds_alternative<StreamConfig>(server_config)) {
+            auto serv_cfg = std::get<StreamConfig>(server_config);
+            return serv_cfg.tls_verify_client;
+        } else {
+            auto serv_cfg = std::get<HttpConfig>(server_config);
+            return serv_cfg.tls_verify_client;
+        }
+    }
 };
 
 inline std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format) {
@@ -222,6 +252,16 @@ inline HttpConfig parse_http(const Json::Value& http_obj) {
         throw std::runtime_error("TLS enabled, but tls_cert_path or tls_key_path is empty");
     }
 
+    cfg.pass_tls_enabled = http_obj.get("pass_tls_enabled", false).asBool();
+    cfg.pass_tls_cert_path = http_obj.get("pass_tls_cert_path", "").asString();
+    cfg.pass_tls_key_path = http_obj.get("pass_tls_key_path", "").asString();
+
+    if (cfg.pass_tls_enabled && (cfg.pass_tls_cert_path.empty() || cfg.pass_tls_key_path.empty())) {
+        throw std::runtime_error("TLS enabled, but pass_cert_path or pass_key_path is empty");
+    }
+
+    cfg.tls_verify_client = http_obj.get("tls_verify_client", false).asBool();
+    cfg.pass_tls_verify = http_obj.get("pass_tls_verify", false).asBool();
 
     // Logs stuff
     cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
@@ -255,6 +295,17 @@ inline StreamConfig parse_stream(const Json::Value& stream_obj) {
     if (cfg.tls_enabled && (cfg.tls_cert_path.empty() || cfg.tls_key_path.empty())) {
         throw std::runtime_error("TLS enabled, but tls_cert_path or tls_key_path is empty");
     }
+
+    cfg.pass_tls_enabled = stream_obj.get("pass_tls_enabled", false).asBool();
+    cfg.pass_tls_cert_path = stream_obj.get("pass_tls_cert_path", "").asString();
+    cfg.pass_tls_key_path = stream_obj.get("pass_tls_key_path", "").asString();
+
+    if (cfg.pass_tls_enabled && (cfg.pass_tls_cert_path.empty() || cfg.pass_tls_key_path.empty())) {
+        throw std::runtime_error("TLS enabled, but pass_cert_path or pass_key_path is empty");
+    }
+
+    cfg.tls_verify_client = stream_obj.get("tls_verify_client", false).asBool();
+    cfg.pass_tls_verify = stream_obj.get("pass_tls_verify", false).asBool();
 
     cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
 
@@ -295,9 +346,25 @@ inline Config parse_config(const std::filesystem::path &path) {
             for (const auto &host: block) {
                 auto host_str = host["host"].asString();
                 auto port = host["port"].asInt();
-                auto tls_enabled = host["tls_enabled"].asBool();
 
-                result.servers.servers[serv_block].emplace_back(host_str, port, tls_enabled);
+                std::optional<bool> pass_tls_enabled;
+                std::optional<bool> pass_tls_verify;
+                std::optional<std::string> pass_tls_cert_path;
+                std::optional<std::string> pass_tls_key_path;
+                if (host.isMember("pass_tls_enabled")) {
+                    pass_tls_enabled = host["pass_tls_enabled"].asBool();
+                }
+                if (host.isMember("pass_tls_verify")) {
+                    pass_tls_verify = host["pass_tls_verify"].asBool();
+                }
+                if (host.isMember("pass_tls_cert_path")) {
+                    pass_tls_cert_path = host["pass_tls_cert_path"].asString();
+                }
+                if (host.isMember("pass_tls_key_path")) {
+                    pass_tls_key_path = host["pass_tls_key_path"].asString();
+                }
+
+                result.servers.servers[serv_block].emplace_back(host_str, port, pass_tls_enabled, pass_tls_verify, std::move(pass_tls_cert_path), std::move(pass_tls_key_path));
             }
         }
     } else {
