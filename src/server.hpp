@@ -109,23 +109,13 @@ private:
     }
 
     std::pair<std::shared_ptr<Session>, Host> make_session() {
-        auto [host, host_idx] = upstream_selector_->select_host();
         auto upstream_options = upstream_selector_->options();
-
-        auto make_deleter = [this, host_idx](Session *ptr) {
-            upstream_selector_->disconnect_host(static_cast<unsigned int>(host_idx));
-            delete ptr;
-        };
 
         if (cfg_.is_stream()) {
             auto &cfg = std::get<StreamConfig>(cfg_.server_config);
+            bool pass_tls = upstream_options.pass_tls_enabled.value_or(cfg.pass_tls_enabled);
 
-            bool pass_tls =
-                    upstream_options.pass_tls_enabled.value_or(cfg.pass_tls_enabled);
-
-            boost::asio::ssl::context ssl_clnt_ctx{
-                boost::asio::ssl::context_base::tls_client
-            };
+            boost::asio::ssl::context ssl_clnt_ctx{boost::asio::ssl::context_base::tls_client};
 
             if (pass_tls) {
                 if (upstream_options.pass_tls_verify.value_or(cfg.pass_tls_verify))
@@ -138,41 +128,35 @@ private:
                     (!cfg.pass_tls_cert_path.empty() &&
                      !cfg.pass_tls_key_path.empty())) {
                     ssl_clnt_ctx.use_certificate_chain_file(
-                        upstream_options.pass_tls_cert_path.value_or(
-                            cfg.pass_tls_cert_path));
-
+                        upstream_options.pass_tls_cert_path.value_or(cfg.pass_tls_cert_path));
                     ssl_clnt_ctx.use_private_key_file(
-                        upstream_options.pass_tls_key_path.value_or(
-                            cfg.pass_tls_key_path),
+                        upstream_options.pass_tls_key_path.value_or(cfg.pass_tls_key_path),
                         boost::asio::ssl::context::file_format::pem);
                 }
             }
 
-            auto *raw = new StreamSession(
-                cfg,
-                ctx_,
-                ssl_ctx_,
-                std::move(ssl_clnt_ctx),
-                cfg_.is_tls_enabled(),
-                pass_tls
-            );
+            auto raw = new StreamSession(cfg, ctx_, ssl_ctx_, std::move(ssl_clnt_ctx),
+                                         cfg.tls_enabled, pass_tls);
 
-            if (pass_tls) {
+            auto [host, host_idx] = upstream_selector_->select_host();
+
+            if (raw->get_service().is_tls())
                 raw->get_service().set_sni(host.host);
-            }
 
+            auto deleter = [selector = upstream_selector_, host_idx](Session *ptr) {
+                selector->disconnect_host(host_idx);
+                delete ptr;
+            };
 
-            std::shared_ptr<Session> session(raw, make_deleter);
-            return {session, host};
+            std::shared_ptr<StreamSession> derived_ptr(raw, deleter);
+            std::shared_ptr<Session> session_ptr = derived_ptr; // приводим к базовому Session
+
+            return {session_ptr, host};
         } else {
             auto &cfg = std::get<HttpConfig>(cfg_.server_config);
+            bool pass_tls = upstream_options.pass_tls_enabled.value_or(cfg.pass_tls_enabled);
 
-            bool pass_tls =
-                    upstream_options.pass_tls_enabled.value_or(cfg.pass_tls_enabled);
-
-            boost::asio::ssl::context ssl_clnt_ctx{
-                boost::asio::ssl::context_base::tls_client
-            };
+            boost::asio::ssl::context ssl_clnt_ctx{boost::asio::ssl::context_base::tls_client};
 
             if (pass_tls) {
                 if (upstream_options.pass_tls_verify.value_or(cfg.pass_tls_verify))
@@ -185,32 +169,30 @@ private:
                     (!cfg.pass_tls_cert_path.empty() &&
                      !cfg.pass_tls_key_path.empty())) {
                     ssl_clnt_ctx.use_certificate_chain_file(
-                        upstream_options.pass_tls_cert_path.value_or(
-                            cfg.pass_tls_cert_path));
-
+                        upstream_options.pass_tls_cert_path.value_or(cfg.pass_tls_cert_path));
                     ssl_clnt_ctx.use_private_key_file(
-                        upstream_options.pass_tls_key_path.value_or(
-                            cfg.pass_tls_key_path),
+                        upstream_options.pass_tls_key_path.value_or(cfg.pass_tls_key_path),
                         boost::asio::ssl::context::file_format::pem);
                 }
             }
 
-            auto *raw = new HttpSession(
-                cfg,
-                ctx_,
-                ssl_ctx_,
-                std::move(ssl_clnt_ctx),
-                cfg_.is_tls_enabled(),
-                pass_tls
-            );
+            auto raw = new HttpSession(cfg, ctx_, ssl_ctx_, std::move(ssl_clnt_ctx),
+                                       cfg.tls_enabled, pass_tls);
 
-            if (pass_tls) {
+            auto [host, host_idx] = upstream_selector_->select_host();
+
+            if (raw->get_service().is_tls())
                 raw->get_service().set_sni(host.host);
-            }
 
+            auto deleter = [selector = upstream_selector_, host_idx](Session *ptr) {
+                selector->disconnect_host(host_idx);
+                delete ptr;
+            };
 
-            std::shared_ptr<Session> session(raw, make_deleter);
-            return {session, host};
+            std::shared_ptr<HttpSession> derived_ptr(raw, deleter);
+            std::shared_ptr<Session> session_ptr = derived_ptr;
+
+            return {session_ptr, host};
         }
     }
 
@@ -267,7 +249,7 @@ private:
         //         break;
         //     }
         // }
-        upstream_selector_ = std::make_unique<LeastConnectionSelector>();
+        upstream_selector_ = std::make_shared<LeastConnectionSelector>();
     }
 
 public:
@@ -303,7 +285,7 @@ private:
 
     Config cfg_;
 
-    std::unique_ptr<UpstreamSelector> upstream_selector_{};
+    std::shared_ptr<UpstreamSelector> upstream_selector_{};
     // unsigned int current_host_index_{0};
 };
 

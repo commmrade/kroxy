@@ -65,6 +65,6 @@
     "format_log": "URI: $request_uri, method $request_method, status: $status, user agent: $http_user_agent, $bytes_sent haha",
 
     "timeout_ms": 5000,
-    "pass_to": "fuck"
+    "pass_to": "google-tls"
   }
 }
