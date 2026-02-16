@@ -14,15 +14,28 @@
 struct Host {
     std::string host;
     unsigned short port{};
+};
 
+struct UpstreamOptions {
     std::optional<bool> pass_tls_enabled;
     std::optional<bool> pass_tls_verify; // verifies serv. cert
     std::optional<std::string> pass_tls_cert_path;
     std::optional<std::string> pass_tls_key_path;
 };
 
+enum class LoadBalancingAlgo {
+    ROUND_ROBIN,
+    FIRST,
+};
+
+struct Upstream {
+    LoadBalancingAlgo lb_algo;
+    UpstreamOptions options;
+    std::vector<Host> hosts;
+};
+
 struct Servers {
-    std::unordered_map<std::string, std::vector<Host> > servers;
+    std::unordered_map<std::string, Upstream > servers;
 };
 
 struct LogFormat {
@@ -162,7 +175,7 @@ struct Config {
         }
     }
 
-    const std::vector<Host> &get_servers_block() {
+    const Upstream &get_servers_block() {
         return servers.servers[get_pass_to()];
     }
 
@@ -343,29 +356,48 @@ inline Config parse_config(const std::filesystem::path &path) {
     if (servers_obj.isObject() && !servers_obj.empty()) {
         for (const auto &serv_block: servers_obj.getMemberNames()) {
             const auto &block = servers_obj[serv_block];
-            for (const auto &host: block) {
+
+            std::optional<bool> pass_tls_enabled;
+            std::optional<bool> pass_tls_verify;
+            std::optional<std::string> pass_tls_cert_path;
+            std::optional<std::string> pass_tls_key_path;
+            if (block.isMember("pass_tls_enabled")) {
+                pass_tls_enabled = block["pass_tls_enabled"].asBool();
+            }
+            if (block.isMember("pass_tls_verify")) {
+                pass_tls_verify = block["pass_tls_verify"].asBool();
+            }
+            if (block.isMember("pass_tls_cert_path")) {
+                pass_tls_cert_path = block["pass_tls_cert_path"].asString();
+            }
+            if (block.isMember("pass_tls_key_path")) {
+                pass_tls_key_path = block["pass_tls_key_path"].asString();
+            }
+
+            LoadBalancingAlgo algo = [&block]() -> LoadBalancingAlgo {
+                std::string algo_str = block["balancing_algo"].asString();
+                if (algo_str == "rb") {
+                    return LoadBalancingAlgo::ROUND_ROBIN;
+                } else if (algo_str == "first") {
+                    return LoadBalancingAlgo::FIRST;
+                } else {
+                    return LoadBalancingAlgo::ROUND_ROBIN;
+                }
+            }();
+
+            Upstream serv;
+            serv.options.pass_tls_enabled = pass_tls_enabled;
+            serv.options.pass_tls_verify = pass_tls_verify;
+            serv.options.pass_tls_cert_path = pass_tls_cert_path;
+            serv.options.pass_tls_key_path = pass_tls_key_path;
+            serv.lb_algo = algo;
+
+            for (const auto &host: block["hosts"]) {
                 auto host_str = host["host"].asString();
                 auto port = host["port"].asInt();
-
-                std::optional<bool> pass_tls_enabled;
-                std::optional<bool> pass_tls_verify;
-                std::optional<std::string> pass_tls_cert_path;
-                std::optional<std::string> pass_tls_key_path;
-                if (host.isMember("pass_tls_enabled")) {
-                    pass_tls_enabled = host["pass_tls_enabled"].asBool();
-                }
-                if (host.isMember("pass_tls_verify")) {
-                    pass_tls_verify = host["pass_tls_verify"].asBool();
-                }
-                if (host.isMember("pass_tls_cert_path")) {
-                    pass_tls_cert_path = host["pass_tls_cert_path"].asString();
-                }
-                if (host.isMember("pass_tls_key_path")) {
-                    pass_tls_key_path = host["pass_tls_key_path"].asString();
-                }
-
-                result.servers.servers[serv_block].emplace_back(host_str, port, pass_tls_enabled, pass_tls_verify, std::move(pass_tls_cert_path), std::move(pass_tls_key_path));
+                serv.hosts.emplace_back(host_str, port);
             }
+            result.servers.servers[serv_block] = std::move(serv);
         }
     } else {
         throw std::runtime_error("Servers block is empty");

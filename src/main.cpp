@@ -10,9 +10,6 @@
 #include <stdexcept>
 #include "config.hpp"
 #include "server.hpp"
-#include "httpsession.hpp"
-
-
 
 int main(int argc, char** argv) {
     if (argc < 2) {
