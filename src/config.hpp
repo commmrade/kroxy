@@ -15,10 +15,10 @@ struct Host {
     std::string host;
     unsigned short port{};
 
-    bool pass_tls_enabled{};
-    bool pass_tls_verify{}; // verifies serv. cert
-    std::string pass_tls_cert_path;
-    std::string pass_tls_key_path;
+    std::optional<bool> pass_tls_enabled;
+    std::optional<bool> pass_tls_verify; // verifies serv. cert
+    std::optional<std::string> pass_tls_cert_path;
+    std::optional<std::string> pass_tls_key_path;
 };
 
 struct Servers {
@@ -346,12 +346,25 @@ inline Config parse_config(const std::filesystem::path &path) {
             for (const auto &host: block) {
                 auto host_str = host["host"].asString();
                 auto port = host["port"].asInt();
-                auto pass_tls_enabled = host["pass_tls_enabled"].asBool();
-                auto pass_tls_verify = host["pass_tls_verify"].asBool();
-                auto pass_tls_cert_path = host["pass_tls_cert_path"].asString();
-                auto pass_tls_key_path = host["pass_tls_key_path"].asString();
 
-                result.servers.servers[serv_block].emplace_back(host_str, port, pass_tls_enabled, pass_tls_verify, pass_tls_cert_path, pass_tls_key_path);
+                std::optional<bool> pass_tls_enabled;
+                std::optional<bool> pass_tls_verify;
+                std::optional<std::string> pass_tls_cert_path;
+                std::optional<std::string> pass_tls_key_path;
+                if (host.isMember("pass_tls_enabled")) {
+                    pass_tls_enabled = host["pass_tls_enabled"].asBool();
+                }
+                if (host.isMember("pass_tls_verify")) {
+                    pass_tls_verify = host["pass_tls_verify"].asBool();
+                }
+                if (host.isMember("pass_tls_cert_path")) {
+                    pass_tls_cert_path = host["pass_tls_cert_path"].asString();
+                }
+                if (host.isMember("pass_tls_key_path")) {
+                    pass_tls_key_path = host["pass_tls_key_path"].asString();
+                }
+
+                result.servers.servers[serv_block].emplace_back(host_str, port, pass_tls_enabled, pass_tls_verify, std::move(pass_tls_cert_path), std::move(pass_tls_key_path));
             }
         }
     } else {
