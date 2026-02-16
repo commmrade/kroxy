@@ -60,42 +60,18 @@ struct std::hash<Host> {
 
 class LeastConnectionSelector : public UpstreamSelector {
 public:
-    std::pair<Host, std::size_t> select_host() override {
-        if (conns_.empty()) {
-            conns_.resize(serv_.hosts.size(), 0);
-        }
+    std::pair<Host, std::size_t> select_host() override;
 
-        auto idx = best_index();
-        auto host = serv_.hosts[idx];
-        return {host, idx};
-    }
+    void disconnect_host(unsigned int index) override;
 
-    void disconnect_host(unsigned int index) override {
-        --conns_[index];
-    }
-
-    std::size_t best_index() {
-        auto idx = static_cast<std::size_t>(std::distance(conns_.begin(), std::ranges::min_element(conns_)));
-        ++conns_[idx];
-        return idx;
-    }
-
+    std::size_t best_index();
 private:
     std::vector<unsigned int> conns_;
 };
 
 class RoundRobinSelector : public UpstreamSelector {
 public:
-    std::pair<Host, std::size_t> select_host() override {
-        if (cur_host_idx_ >= serv_.hosts.size()) {
-            cur_host_idx_ = 0;
-        }
-        auto host = serv_.hosts[cur_host_idx_];
-        auto idx = cur_host_idx_;
-        ++cur_host_idx_;
-        return {host, idx};
-    }
-
+    std::pair<Host, std::size_t> select_host() override;
 private:
     unsigned int cur_host_idx_{0};
 };

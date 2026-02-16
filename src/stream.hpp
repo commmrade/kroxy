@@ -1,7 +1,9 @@
 #pragma once
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/beast.hpp>
 #include <variant>
+#include <print>
 
 template<typename T>
 struct is_ssl_stream : std::false_type {

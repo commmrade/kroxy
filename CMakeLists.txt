@@ -25,7 +25,10 @@ add_executable(kroxy src/main.cpp
         src/server.cpp
         src/server.hpp
         src/selectors.cpp
-        src/selectors.hpp)
+        src/selectors.hpp
+        src/config.cpp
+        src/httpsession.cpp
+        src/streamsession.cpp)
 
 target_include_directories(kroxy PRIVATE
     ${LIBURING_INCLUDE_DIRS}

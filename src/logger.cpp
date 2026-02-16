@@ -10,3 +10,7 @@ void replace_variable(std::string& log_msg, LogFormat::Variable var, const std::
     const auto var_pos = log_msg.find(var_name);
     log_msg.replace(var_pos, var_name.size(), replace_to);
 }
+
+void Logger::write(std::string_view msg) {
+    m_file << msg << '\n';
+}

@@ -31,10 +31,7 @@ class Logger
 
     Logger& operator=(Logger&&) = delete;
 
-    void write(std::string_view msg) {
-        m_file << msg << '\n';
-    }
-
+    void write(std::string_view msg);
   private:
     std::ofstream m_file;
 };
