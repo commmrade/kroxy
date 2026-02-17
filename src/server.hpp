@@ -18,21 +18,19 @@ class Server {
 private:
     void setup_socket(boost::asio::io_context &ctx, unsigned short port);
 
-    std::pair<std::shared_ptr<Session>, Host> make_session();
+    std::shared_ptr<Session> make_session();
 
     void do_accept();
 
     void set_lb_algo();
 public:
-    Server(boost::asio::io_context &ctx, Config conf);
+    Server(boost::asio::io_context &ctx);
 
     void run();
 private:
     boost::asio::io_context &ctx_;
     boost::asio::ip::tcp::acceptor acceptor_;
     boost::asio::ssl::context ssl_ctx_{boost::asio::ssl::context::tls_server};
-
-    Config cfg_;
 
     std::shared_ptr<UpstreamSelector> upstream_selector_{};
 };

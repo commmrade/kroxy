@@ -6,15 +6,15 @@
 
 std::pair<Host, std::size_t> LeastConnectionSelector::select_host() {
     if (conns_.empty()) {
-        conns_.resize(serv_.hosts.size(), 0);
+        conns_.resize(serv_->hosts.size(), 0);
     }
 
     auto idx = best_index();
-    auto host = serv_.hosts[idx];
+    auto host = serv_->hosts[idx];
     return {host, idx};
 }
 
-void LeastConnectionSelector::disconnect_host(unsigned int index) {
+void LeastConnectionSelector::disconnect_host(std::size_t index) {
     --conns_[index];
 }
 
@@ -26,10 +26,10 @@ std::size_t LeastConnectionSelector::best_index() {
 
 
 std::pair<Host, std::size_t> RoundRobinSelector::select_host() {
-    if (cur_host_idx_ >= serv_.hosts.size()) {
+    if (cur_host_idx_ >= serv_->hosts.size()) {
         cur_host_idx_ = 0;
     }
-    auto host = serv_.hosts[cur_host_idx_];
+    auto host = serv_->hosts[cur_host_idx_];
     auto idx = cur_host_idx_;
     ++cur_host_idx_;
     return {host, idx};

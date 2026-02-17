@@ -19,9 +19,10 @@ int main(int argc, char** argv) {
         boost::asio::io_context ctx;
 
         const std::filesystem::path path{argv[1]};
-        auto cfg = parse_config(path);
+        Config::instance(argv[1]);
+        // auto cfg = parse_config(path);
 
-        Server server{ctx, std::move(cfg)};
+        Server server{ctx};
         server.run();
 
         boost::asio::signal_set signals(ctx, SIGINT, SIGTERM);

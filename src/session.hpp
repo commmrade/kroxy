@@ -24,7 +24,7 @@ public:
 
     Session &operator=(Session &&) = delete;
 
-    virtual void run(Upstream& upstream) = 0;
+    virtual void run() = 0;
 
     void close_ses() {
         client_sock_.socket().close();
@@ -44,4 +44,5 @@ public:
 protected:
     Stream client_sock_;
     std::unique_ptr<Stream> service_sock_;
+    std::size_t session_idx_{};
 };

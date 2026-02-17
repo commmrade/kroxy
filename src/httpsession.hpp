@@ -7,10 +7,11 @@
 #include "session.hpp"
 #include <memory>
 #include "logger.hpp"
+#include "selectors.hpp"
 #include "utils.hpp"
 
 class HttpSession : public Session, public std::enable_shared_from_this<HttpSession> {
-public:
+private:
     template<bool isRequest, class Body>
     void process_headers(boost::beast::http::message<isRequest, Body> &msg) {
         // TODO: real implementation, for now its mock
@@ -47,12 +48,19 @@ public:
 
     HttpSession &operator=(const HttpSession &) = delete;
 
-    ~HttpSession() override = default;
+    ~HttpSession() override {
+        auto& cfg = Config::instance("");
+        auto& upstream = cfg.get_upstream();
+        upstream.load_balancer->disconnect_host(session_idx_);
+    }
 
-    void run(Upstream& upstream) override;
+    void run() override;
 private:
     void check_log();
+
     void log();
+
+    void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body>& msg);
 
     enum class State : std::uint8_t {
         HEADERS,
@@ -83,6 +91,4 @@ private:
     std::optional<std::string> request_method_;
     std::optional<unsigned int> http_status_{};
     std::optional<std::string> user_agent_;
-
-    Upstream upstream_;
 };

@@ -5,6 +5,7 @@
 #include <boost/asio/experimental/parallel_group.hpp>
 #include "config.hpp"
 #include "logger.hpp"
+#include "selectors.hpp"
 #include "session.hpp"
 
 class StreamSession : public Session, public std::enable_shared_from_this<StreamSession> {
@@ -24,9 +25,7 @@ private:
 
     void do_downstream();
 public:
-    explicit StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
-                           boost::asio::ssl::context &&ssl_clnt_ctx, bool is_client_tls,
-                           bool is_service_tls);
+    explicit StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx, bool is_client_tls);
 
     StreamSession(const StreamSession &) = delete;
 
@@ -41,6 +40,8 @@ public:
     void run() override;
 private:
     void log();
+
+    void handle_service();
 
     StreamConfig &cfg_;
 

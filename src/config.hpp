@@ -11,6 +11,8 @@
 #include <variant>
 #include <vector>
 
+class UpstreamSelector;
+
 struct Host {
     std::string host;
     unsigned short port{};
@@ -30,7 +32,7 @@ enum class LoadBalancingAlgo : std::uint8_t {
 };
 
 struct Upstream {
-    LoadBalancingAlgo lb_algo;
+    std::shared_ptr<UpstreamSelector> load_balancer;
     UpstreamOptions options;
     std::vector<Host> hosts;
 };
@@ -148,7 +150,19 @@ struct HttpConfig {
 static constexpr unsigned short DEFAULT_PORT = 8080;
 static constexpr std::size_t DEFAULT_TIMEOUT = 1000;
 
+struct Config;
+
+std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format);
+inline HttpConfig parse_http(const Json::Value& http_obj);
+StreamConfig parse_stream(const Json::Value& stream_obj);
+Config parse_config(const std::filesystem::path &path);
+
 struct Config {
+    static Config& instance(const std::filesystem::path &path) {
+        static Config config = parse_config(path);
+        return config;
+    }
+
     std::variant<StreamConfig, HttpConfig> server_config;
     Servers servers;
 
@@ -160,7 +174,7 @@ struct Config {
 
     unsigned short get_port() const;
 
-    const Upstream &get_servers_block() {
+    const Upstream &get_upstream() {
         return servers.servers[get_pass_to()];
     }
 
@@ -172,8 +186,3 @@ struct Config {
 
     bool get_tls_verify_client() const;
 };
-
-std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format);
-inline HttpConfig parse_http(const Json::Value& http_obj);
-StreamConfig parse_stream(const Json::Value& stream_obj);
-Config parse_config(const std::filesystem::path &path);

@@ -6,9 +6,19 @@
 #define KROXY_SELECTORS_HPP
 #include <algorithm>
 #include <vector>
-
-#include "config.hpp"
 #include <ranges>
+#include "config.hpp"
+#include "boost/asio/ip/address.hpp"
+
+// struct BalancerData {
+//     std::string_view URI;
+//     std::string_view query_str;
+//
+//     std::string_view header_host;
+//     std::string_view tls_sni;
+//
+//     boost::asio::ip::address client_address;
+// };
 
 class UpstreamSelector {
 public:
@@ -24,28 +34,28 @@ public:
 
     UpstreamSelector& operator=(UpstreamSelector&&) = delete;
 
-    void set_upstream(const Upstream &serv) {
+    void set_upstream(Upstream *serv) {
         serv_ = serv;
     }
 
     [[nodiscard]] UpstreamOptions options() const {
-        return serv_.options;
+        return serv_->options;
     }
 
     virtual std::pair<Host, std::size_t> select_host() = 0;
 
-    virtual void disconnect_host(unsigned int index) {
+    virtual void disconnect_host(std::size_t index) {
         // This might not be used by every algorithm (Round-robin f.e), but it may be used by least connection algo
     }
 
 protected:
-    Upstream serv_;
+    Upstream* serv_ = nullptr;
 };
 
 class FirstSelector : public UpstreamSelector {
 public:
     std::pair<Host, std::size_t> select_host() override {
-        return {serv_.hosts[0], 0};
+        return {serv_->hosts[0], 0};
     }
 };
 
@@ -62,7 +72,7 @@ class LeastConnectionSelector : public UpstreamSelector {
 public:
     std::pair<Host, std::size_t> select_host() override;
 
-    void disconnect_host(unsigned int index) override;
+    void disconnect_host(std::size_t index) override;
 
     std::size_t best_index();
 private:

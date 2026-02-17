@@ -3,6 +3,8 @@
 //
 #include "config.hpp"
 
+#include "selectors.hpp"
+#include <print>
 
 std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format) {
     std::unordered_set<LogFormat::Variable> result;
@@ -177,14 +179,32 @@ Config parse_config(const std::filesystem::path &path) {
             serv.options.pass_tls_verify = pass_tls_verify;
             serv.options.pass_tls_cert_path = pass_tls_cert_path;
             serv.options.pass_tls_key_path = pass_tls_key_path;
-            serv.lb_algo = algo;
+
+            // serv.lb_algo = algo;
+
+            switch (algo) {
+                case LoadBalancingAlgo::ROUND_ROBIN: {
+                    serv.load_balancer = std::make_unique<RoundRobinSelector>();
+                    break;
+                }
+                case LoadBalancingAlgo::FIRST: {
+                    serv.load_balancer = std::make_unique<FirstSelector>();
+                    break;
+                }
+                case LoadBalancingAlgo::LEAST_CONN: {
+                    serv.load_balancer = std::make_unique<LeastConnectionSelector>();
+                    break;
+                }
+            }
 
             for (const auto &host: block["hosts"]) {
                 auto host_str = host["host"].asString();
                 auto port = host["port"].asInt();
                 serv.hosts.emplace_back(host_str, port);
             }
+
             result.servers.servers[serv_block] = std::move(serv);
+            result.servers.servers[serv_block].load_balancer->set_upstream(&result.servers.servers.at(serv_block));
         }
     } else {
         throw std::runtime_error("Servers block is empty");

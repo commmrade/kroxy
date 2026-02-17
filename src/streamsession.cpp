@@ -3,12 +3,12 @@
 //
 #include "streamsession.hpp"
 
+#include "selectors.hpp"
 #include "utils.hpp"
 
 StreamSession::StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
-                             boost::asio::ssl::context &&ssl_clnt_ctx, bool is_client_tls,
-                             bool is_service_tls)
-    : Session(ctx, ssl_srv_ctx, std::move(ssl_clnt_ctx), is_service_tls, is_client_tls), cfg_(cfg) {
+                             bool is_client_tls)
+    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg) {
     if (!cfg_.file_log.empty()) {
         logger_.emplace(cfg_.file_log);
     }
@@ -16,43 +16,99 @@ StreamSession::StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, bo
 
 StreamSession::~StreamSession() {
     log();
+
+    auto &cfg = Config::instance("");
+    auto &upstream = cfg.get_upstream();
+    upstream.load_balancer->disconnect_host(session_idx_);
+}
+
+void StreamSession::handle_service() {
+    auto &cfg = Config::instance("");
+    auto &upstream = cfg.get_upstream();
+    auto [host, idx] = upstream.load_balancer->select_host();
+    session_idx_ = idx;
+
+    bool host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
+
+    auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(client_sock_.socket().get_executor());
+
+    auto &exec = client_sock_.socket().get_executor();
+    auto &ioc = static_cast<boost::asio::io_context &>(exec.context());
+
+    boost::asio::ssl::context service_ssl_ctx(boost::asio::ssl::context::tls_client);
+    service_ssl_ctx.set_default_verify_paths();
+    if (upstream.options.pass_tls_verify.value_or(cfg_.pass_tls_verify)) {
+        service_ssl_ctx.set_verify_mode(boost::asio::ssl::verify_peer);
+    }
+    if ((upstream.options.pass_tls_cert_path.has_value() && upstream.options.pass_tls_key_path.has_value()) || (
+            !cfg_.pass_tls_cert_path.empty() && !cfg_.pass_tls_key_path.empty())) {
+        service_ssl_ctx.use_certificate_chain_file(
+            upstream.options.pass_tls_cert_path.value_or(cfg_.pass_tls_cert_path));
+        service_ssl_ctx.use_private_key_file(
+            upstream.options.pass_tls_key_path.value_or(cfg_.pass_tls_key_path),
+            boost::asio::ssl::context::file_format::pem);
+    }
+    service_sock_ = std::make_unique<Stream>(ioc, std::move(service_ssl_ctx), host_is_tls);
+
+    // resolve -> connect -> optional TLS handshake -> do_downstream() && do_upstream()
+    resolver->async_resolve(host.host,
+                            std::to_string(host.port),
+                            [self = shared_from_this(), resolver, host](
+                        const boost::system::error_code &errc,
+                        const boost::asio::ip::tcp::resolver::results_type &eps) {
+                                if (errc) {
+                                    std::println("Resolving failed: {}", errc.message());
+                                    self->close_ses();
+                                    return;
+                                }
+
+                                boost::asio::async_connect(self->service_sock_->socket(),
+                                                           eps,
+                                                           [self, host](const boost::system::error_code &errc,
+                                                                        [[maybe_unused]] const
+                                                                        boost::asio::ip::tcp::endpoint &endpoint) {
+                                                               if (errc) {
+                                                                   std::println(
+                                                                       "Connecting to service failed: {}",
+                                                                       errc.message());
+                                                                   self->close_ses();
+                                                                   return;
+                                                               }
+
+                                                               // if TLS is required, perform SNI + handshake
+                                                               if (self->service_sock_->is_tls()) {
+                                                                   if (!self->service_sock_->set_sni(host.host)) {
+                                                                       std::println(
+                                                                           "Warning: set_sni failed for host {}",
+                                                                           host.host);
+                                                                   }
+
+                                                                   self->service_sock_->async_handshake(
+                                                                       boost::asio::ssl::stream_base::client,
+                                                                       [self](const boost::system::error_code &errc) {
+                                                                           if (errc) {
+                                                                               std::println(
+                                                                                   "Service TLS handshake failed: {}",
+                                                                                   errc.message());
+                                                                               self->close_ses();
+                                                                               return;
+                                                                           }
+
+                                                                           self->do_downstream();
+                                                                           self->do_upstream();
+                                                                       });
+                                                               } else {
+                                                                   // plain TCP -> proceed
+                                                                   self->do_downstream();
+                                                                   self->do_upstream();
+                                                               }
+                                                           }); // async_connect
+                            }); // async_resolve
 }
 
 void StreamSession::run() {
-    auto self = shared_from_this();
-
-    boost::asio::experimental::make_parallel_group(
-        // client handshake
-        [&](auto token) {
-            return client_sock_.async_handshake(boost::asio::ssl::stream_base::server, token);
-        },
-        // service handshake
-        [&](auto token) {
-            return service_sock_.async_handshake(boost::asio::ssl::stream_base::client, token);
-        }
-    ).async_wait(
-        boost::asio::experimental::wait_for_all(),
-        [self, this](
-    std::array<std::size_t, 2> /*completion_order*/,
-    boost::system::error_code ec_client,
-    boost::system::error_code ec_service
-) {
-            if (ec_client) {
-                std::println("Client handshake failed: {}", ec_client.message());
-                return;
-            }
-            if (ec_service) {
-                std::println("Service handshake failed: {}", ec_service.message());
-                return;
-            }
-            std::println("Both TLS handshakes successful");
-
-            do_upstream();
-            do_downstream();
-
-            start_time_ = std::chrono::high_resolution_clock::now();
-        }
-    );
+    start_time_ = std::chrono::high_resolution_clock::now();
+    handle_service();
 }
 
 void StreamSession::log() {
@@ -84,13 +140,12 @@ void StreamSession::log() {
     }
 }
 
-
 void StreamSession::do_read_client(const boost::system::error_code &errc, std::size_t bytes_tf) {
     if (!errc) {
         upstream_buf_.commit(bytes_tf);
         auto write_data = upstream_buf_.data();
 
-        service_sock_.async_write(
+        service_sock_->async_write(
             write_data, [self = shared_from_this(), this](const boost::system::error_code &errc,
                                                           std::size_t bytes_tf) {
                 do_write_service(errc, bytes_tf);
@@ -102,11 +157,11 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
             // TLS 1.2 forbids half-closed state, but I hope that servers/clients deal with it themselves, at the same time TLS 1.3 allows half-closed state
 
             // Calls either ssl::stream::async_shutdown or socket::shutdown
-            if (service_sock_.is_tls()) {
-                service_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
+            if (service_sock_->is_tls()) {
+                service_sock_->async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
                 });
             } else {
-                service_sock_.shutdown();
+                service_sock_->shutdown();
             }
             // After this function is done and we got everything from the other host, session will die by itself
         } else {
@@ -150,7 +205,7 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
                                      do_write_client(errc, bytes_tf);
                                  });
     } else {
-        if (service_sock_.is_tls()) {
+        if (service_sock_->is_tls()) {
             std::println("Service reading error: {}", errc.message());
             close_ses();
         } else {
@@ -184,9 +239,9 @@ void StreamSession::do_write_client(const boost::system::error_code &errc, std::
 }
 
 void StreamSession::do_downstream() {
-    service_sock_.async_read_some(downstream_buf_.prepare(BUF_SIZE),
-                                  [self = shared_from_this(), this](const boost::system::error_code &errc,
-                                                                    std::size_t bytes_tf) {
-                                      do_read_service(errc, bytes_tf);
-                                  });
+    service_sock_->async_read_some(downstream_buf_.prepare(BUF_SIZE),
+                                   [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                                                     std::size_t bytes_tf) {
+                                       do_read_service(errc, bytes_tf);
+                                   });
 }
