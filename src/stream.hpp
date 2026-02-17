@@ -125,6 +125,12 @@ public:
         return true;
     }
 
+    std::string get_sni() {
+        assert(is_tls());
+        std::string sni = SSL_get_servername(get_tls_stream().native_handle(), TLSEXT_NAMETYPE_host_name);
+        return sni;
+    }
+
     boost::asio::ip::tcp::socket &get_stream() {
         assert(!is_tls());
         return stream_.next_layer();

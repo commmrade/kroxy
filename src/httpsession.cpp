@@ -80,9 +80,24 @@ void HttpSession::log() {
 
 void HttpSession::handle_service(
     [[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body> &msg) {
+
+    // Data that balancers can use to route
+    BalancerData data;
+    if (client_sock_.is_tls()) {
+        data.tls_sni = client_sock_.get_sni();
+    }
+    data.URI = msg.base().target();
+    auto const it = msg.find(boost::beast::http::field::host);
+    if (it != msg.end()) {
+        data.header_host = it->value();
+    }
+    data.client_address = client_sock_.socket().remote_endpoint().address();
+
+    // Setting up service socket
     auto &cfg = Config::instance("");
     auto &upstream = cfg.get_upstream();
-    auto [host, idx] = upstream.load_balancer->select_host();
+
+    auto [host, idx] = upstream.load_balancer->select_host(data);
     session_idx_ = idx;
 
     bool host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);

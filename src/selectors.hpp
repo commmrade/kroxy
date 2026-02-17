@@ -10,15 +10,14 @@
 #include "config.hpp"
 #include "boost/asio/ip/address.hpp"
 
-// struct BalancerData {
-//     std::string_view URI;
-//     std::string_view query_str;
-//
-//     std::string_view header_host;
-//     std::string_view tls_sni;
-//
-//     boost::asio::ip::address client_address;
-// };
+struct BalancerData {
+    std::string_view URI;
+    std::string_view header_host;
+
+    std::string tls_sni;
+
+    boost::asio::ip::address client_address;
+};
 
 class UpstreamSelector {
 public:
@@ -42,7 +41,7 @@ public:
         return serv_->options;
     }
 
-    virtual std::pair<Host, std::size_t> select_host() = 0;
+    virtual std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) = 0;
 
     virtual void disconnect_host(std::size_t index) {
         // This might not be used by every algorithm (Round-robin f.e), but it may be used by least connection algo
@@ -54,7 +53,7 @@ protected:
 
 class FirstSelector : public UpstreamSelector {
 public:
-    std::pair<Host, std::size_t> select_host() override {
+    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) override {
         return {serv_->hosts[0], 0};
     }
 };
@@ -70,7 +69,7 @@ struct std::hash<Host> {
 
 class LeastConnectionSelector : public UpstreamSelector {
 public:
-    std::pair<Host, std::size_t> select_host() override;
+    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) override;
 
     void disconnect_host(std::size_t index) override;
 
@@ -81,7 +80,7 @@ private:
 
 class RoundRobinSelector : public UpstreamSelector {
 public:
-    std::pair<Host, std::size_t> select_host() override;
+    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) override;
 private:
     unsigned int cur_host_idx_{0};
 };

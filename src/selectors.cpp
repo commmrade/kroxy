@@ -4,7 +4,7 @@
 
 #include "selectors.hpp"
 
-std::pair<Host, std::size_t> LeastConnectionSelector::select_host() {
+std::pair<Host, std::size_t> LeastConnectionSelector::select_host([[maybe_unused]] const BalancerData& data) {
     if (conns_.empty()) {
         conns_.resize(serv_->hosts.size(), 0);
     }
@@ -25,7 +25,7 @@ std::size_t LeastConnectionSelector::best_index() {
 }
 
 
-std::pair<Host, std::size_t> RoundRobinSelector::select_host() {
+std::pair<Host, std::size_t> RoundRobinSelector::select_host([[maybe_unused]] const BalancerData& data) {
     if (cur_host_idx_ >= serv_->hosts.size()) {
         cur_host_idx_ = 0;
     }

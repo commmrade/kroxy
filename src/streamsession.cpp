@@ -23,9 +23,17 @@ StreamSession::~StreamSession() {
 }
 
 void StreamSession::handle_service() {
+    // Setting up data that balancers can use to route
+    BalancerData data;
+    if (client_sock_.is_tls()) {
+        data.tls_sni = client_sock_.get_sni();
+    }
+    data.client_address = client_sock_.socket().remote_endpoint().address();
+
+    // Setting up service socket
     auto &cfg = Config::instance("");
     auto &upstream = cfg.get_upstream();
-    auto [host, idx] = upstream.load_balancer->select_host();
+    auto [host, idx] = upstream.load_balancer->select_host(data);
     session_idx_ = idx;
 
     bool host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
