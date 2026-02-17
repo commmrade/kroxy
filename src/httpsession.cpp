@@ -94,7 +94,7 @@ void HttpSession::handle_service(
     data.client_address = client_sock_.socket().remote_endpoint().address();
 
     // Setting up service socket
-    auto &cfg = Config::instance("");
+    auto &cfg = Config::instance();
     auto &upstream = cfg.get_upstream();
 
     auto [host, idx] = upstream.load_balancer->select_host(data);

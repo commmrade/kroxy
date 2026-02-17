@@ -17,12 +17,8 @@
 class Server {
 private:
     void setup_socket(boost::asio::io_context &ctx, unsigned short port);
-
     std::shared_ptr<Session> make_session();
-
     void do_accept();
-
-    void set_lb_algo();
 public:
     Server(boost::asio::io_context &ctx);
 
@@ -34,6 +30,5 @@ private:
 
     std::shared_ptr<UpstreamSelector> upstream_selector_{};
 };
-
 
 #endif //KROXY_SERVER_HPP

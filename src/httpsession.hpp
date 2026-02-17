@@ -49,7 +49,7 @@ public:
     HttpSession &operator=(const HttpSession &) = delete;
 
     ~HttpSession() override {
-        auto& cfg = Config::instance("");
+        auto& cfg = Config::instance();
         auto& upstream = cfg.get_upstream();
         upstream.load_balancer->disconnect_host(session_idx_);
     }

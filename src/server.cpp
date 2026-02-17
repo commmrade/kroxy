@@ -5,8 +5,8 @@
 #include "server.hpp"
 
 Server::Server(boost::asio::io_context &ctx) : ctx_(ctx), acceptor_(ctx) {
-    auto& cfg_ = Config::instance("");
-    const auto port = Config::instance("").get_port();
+    auto& cfg_ = Config::instance();
+    const auto port = Config::instance().get_port();
     setup_socket(ctx, port);
 
     if (cfg_.is_tls_enabled()) {
@@ -39,7 +39,7 @@ void Server::setup_socket(boost::asio::io_context &ctx, unsigned short port) {
 }
 
 std::shared_ptr<Session> Server::make_session() {
-    auto& cfg_ = Config::instance("");
+    auto& cfg_ = Config::instance();
     if (cfg_.is_stream()) {
         auto& cfg = std::get<StreamConfig>(cfg_.server_config);
         return std::make_shared<StreamSession>(cfg, ctx_, ssl_ctx_, cfg_.is_tls_enabled());
@@ -57,27 +57,7 @@ void Server::do_accept() {
                                if (!errc) {
                                    session->run();
                                }
-                               /*
-                                * session.do_upstream() instead of run(), it starts reading and then after it read all the header it will connect to the service inside the session
-                                */
                                do_accept();
                            });
 }
 
-void Server::set_lb_algo() {
-    // const auto lb_algo = cfg_.get_servers_block().lb_algo;
-    // switch (lb_algo) {
-    //     case LoadBalancingAlgo::ROUND_ROBIN: {
-    //         upstream_selector_ = std::make_unique<RoundRobinSelector>();
-    //         break;
-    //     }
-    //     case LoadBalancingAlgo::FIRST: {
-    //         upstream_selector_ = std::make_unique<FirstSelector>();
-    //         break;
-    //     }
-    //     case LoadBalancingAlgo::LEAST_CONN: {
-    //         upstream_selector_ = std::make_unique<LeastConnectionSelector>();
-    //         break;
-    //     }
-    // }
-}
