@@ -34,6 +34,13 @@
     },
 
     "vk": {
+      "pass_tls_enabled": false,
+      "hosts": [
+        { "host": "vk.com", "port": 80 }
+      ]
+    },
+
+    "vk-tls": {
       "pass_tls_enabled": true,
       "pass_tls_verify": true,
       "hosts": [
@@ -66,6 +73,6 @@
     "format_log": "URI: $request_uri, method $request_method, status: $status, user agent: $http_user_agent, $bytes_sent haha",
 
     "timeout_ms": 5000,
-    "pass_to": "fuck"
+    "pass_to": "vk-tls"
   }
 }

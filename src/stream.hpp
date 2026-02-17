@@ -5,32 +5,17 @@
 #include <variant>
 #include <print>
 
-template<typename T>
-struct is_ssl_stream : std::false_type {
-};
-
-template<>
-struct is_ssl_stream<boost::asio::ssl::stream<boost::asio::ip::tcp::socket> > : std::true_type {
-};
-
-template<typename Stream>
-constexpr bool is_ssl_stream_v = is_ssl_stream<Stream>::value;
-
 class Stream {
 public:
-    using StreamVariant = std::variant<boost::asio::ip::tcp::socket, boost::asio::ssl::stream<
-        boost::asio::ip::tcp::socket> >;
     using ssl_stream = boost::asio::ssl::stream<boost::asio::ip::tcp::socket>;
 
     template<typename CompletionToken>
     void async_shutdown(CompletionToken &&token) {
-        std::visit([token = std::forward<CompletionToken>(token), this]<typename Stream>(Stream &&stream) mutable {
-            if constexpr (is_ssl_stream_v<Stream>) {
-                stream.async_shutdown(std::move(token));
-            } else {
-                socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
-            }
-        }, stream_);
+        if (is_tls()) {
+            stream_.async_shutdown(std::forward<CompletionToken>(token));
+        } else {
+            stream_.next_layer().shutdown(boost::asio::ip::tcp::socket::shutdown_send);
+        }
     }
 
     void shutdown() {
@@ -39,44 +24,56 @@ public:
 
     template<typename ConstBuffer, typename CompletionToken>
     void async_write(const ConstBuffer &buf, CompletionToken &&token) {
-        std::visit([&buf, token = std::forward<CompletionToken>(token)](auto &&stream) mutable {
-            boost::asio::async_write(stream, buf, std::move(token));
-        }, stream_);
+        if (is_tls()) {
+            boost::asio::async_write(stream_, buf, std::forward<CompletionToken>(token));
+        } else {
+            boost::asio::async_write(stream_.next_layer(), buf, std::forward<CompletionToken>(token));
+        }
     }
 
     template<typename Serializer, typename CompletionToken>
-    void async_write_message(Serializer &sr, CompletionToken &&token) {
-        std::visit([&sr, token = std::forward<CompletionToken>(token)](auto &&stream) mutable {
-            boost::beast::http::async_write(stream, sr, std::move(token));
-        }, stream_);
+    void async_write_message(Serializer &ser, CompletionToken &&token) {
+        if (is_tls()) {
+            boost::beast::http::async_write(stream_, ser, std::forward<CompletionToken>(token));
+        } else {
+            boost::beast::http::async_write(stream_.next_layer(), ser, std::forward<CompletionToken>(token));
+        }
     }
 
     template<typename Serializer, typename CompletionToken>
-    void async_write_header(Serializer &sr, CompletionToken &&token) {
-        std::visit([&sr, token = std::forward<CompletionToken>(token)](auto &&stream) mutable {
-            boost::beast::http::async_write_header(stream, sr, std::move(token));
-        }, stream_);
+    void async_write_header(Serializer &ser, CompletionToken &&token) {
+        if (is_tls()) {
+            boost::beast::http::async_write_header(stream_, ser, std::forward<CompletionToken>(token));
+        } else {
+            boost::beast::http::async_write_header(stream_.next_layer(), ser, std::forward<CompletionToken>(token));
+        }
     }
 
     template<typename MutableBuffer, typename CompletionToken>
     void async_read_some(const MutableBuffer &buf, CompletionToken &&token) {
-        std::visit([&buf, token = std::forward<CompletionToken>(token)](auto &&stream) mutable {
-            stream.async_read_some(buf, std::move(token));
-        }, stream_);
+        if (is_tls()) {
+            stream_.async_read_some(buf, std::forward<CompletionToken>(token));
+        } else {
+            stream_.next_layer().async_read_some(buf, std::forward<CompletionToken>(token));
+        }
     }
 
     template<typename DynamicBuffer, typename Parser, typename CompletionToken>
-    void async_read_message(DynamicBuffer &buf, Parser &ps, CompletionToken &&token) {
-        std::visit([&buf, &ps, token = std::forward<CompletionToken>(token)](auto &&stream) mutable {
-            boost::beast::http::async_read(stream, buf, ps, std::move(token));
-        }, stream_);
+    void async_read_message(DynamicBuffer &buf, Parser &par, CompletionToken &&token) {
+        if (is_tls()) {
+            boost::beast::http::async_read(stream_, buf, par, std::forward<CompletionToken>(token));
+        } else {
+            boost::beast::http::async_read(stream_.next_layer(), buf, par, std::forward<CompletionToken>(token));
+        }
     }
 
     template<typename DynamicBuffer, typename Parser, typename CompletionToken>
     void async_read_header(DynamicBuffer &buf, Parser &ps, CompletionToken &&token) {
-        std::visit([&buf, &ps, token = std::forward<CompletionToken>(token)](auto &&stream) mutable {
-            boost::beast::http::async_read_header(stream, buf, ps, std::move(token));
-        }, stream_);
+        if (is_tls()) {
+            boost::beast::http::async_read_header(stream_, buf, ps, std::forward<CompletionToken>(token));
+        } else {
+            boost::beast::http::async_read_header(stream_.next_layer(), buf, ps, std::forward<CompletionToken>(token));
+        }
     }
 
     class initiate_async_handshake_empty
@@ -96,15 +93,13 @@ public:
 
     template<typename CompletionToken>
     auto async_handshake(boost::asio::ssl::stream_base::handshake_type type, CompletionToken &&token) {
-        return std::visit([&type, token = std::forward<CompletionToken>(token)]<typename Stream>(Stream &stream) mutable {
-            if constexpr (is_ssl_stream_v<Stream>) {
-                return stream.async_handshake(type, std::move(token));
-            } else {
-                return boost::asio::async_initiate<CompletionToken,
-                  void (boost::system::error_code)>(
-                    initiate_async_handshake_empty(), token, type);
-            }
-        }, stream_);
+        if (is_tls()) {
+            stream_.async_handshake(type, std::forward<CompletionToken>(token));
+        } else {
+            return boost::asio::async_initiate<CompletionToken,
+              void (boost::system::error_code)>(
+                initiate_async_handshake_empty(), token, type);
+        }
     }
 
     [[nodiscard]] boost::asio::basic_stream_socket<boost::asio::ip::tcp> &socket() {
@@ -112,13 +107,11 @@ public:
     }
 
     [[nodiscard]] bool is_tls() const {
-        return std::holds_alternative<boost::asio::ssl::stream<boost::asio::ip::tcp::socket> >(stream_);
+        return is_tls_;
     }
 
     boost::asio::any_io_executor get_executor() {
-        return std::visit([](auto &stream) -> boost::asio::any_io_executor {
-            return stream.get_executor();
-        }, stream_);
+        return stream_.get_executor();
     }
 
     bool set_sni(const std::string_view hostname) {
@@ -134,41 +127,40 @@ public:
 
     boost::asio::ip::tcp::socket &get_stream() {
         assert(!is_tls());
-        return std::get<boost::asio::ip::tcp::socket>(stream_);
+        return stream_.next_layer();
     }
 
     boost::asio::ssl::stream<boost::asio::ip::tcp::socket> &get_tls_stream() {
         assert(is_tls());
-        return std::get<boost::asio::ssl::stream<boost::asio::ip::tcp::socket> >(stream_);
+        return stream_;
     }
 
     // Called when wrapping client socket, since there is only 1 Server SSL_CTX, it is passed as ref
-    Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx, bool is_tls) : stream_{
-        construct_stream(ctx, ssl_ctx, is_tls)
-    } {
+    Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx, bool is_tls) : stream_{ctx, ssl_ctx} {
     }
 
     // Called when wrapping a service sock, SSL_CTX is created for each service, therefore it is moved inside here
     Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &&ssl_ctx, bool is_tls)
-        : ssl_ctx_{std::move(ssl_ctx)},
-          stream_{construct_stream(ctx, ssl_ctx_.value(), is_tls)} {
+        : ssl_ctx_{std::move(ssl_ctx)}, is_tls_{is_tls},
+          stream_{ctx, ssl_ctx_.value()} {
     }
 
     Stream(const Stream&) = delete;
 
     Stream &operator=(const Stream &) = delete;
 
+    Stream(Stream&&) = delete;
+
+    Stream& operator=(Stream&&) = delete;
+
     ~Stream() = default;
 private:
-    static StreamVariant construct_stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx,
+    static ssl_stream construct_stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx,
                                           bool is_tls) {
-        if (is_tls) {
-            return ssl_stream{ctx, ssl_ctx};
-        } else {
-            return boost::asio::ip::tcp::socket{ctx};
-        }
+        return ssl_stream{ctx, ssl_ctx};
     }
 
     std::optional<boost::asio::ssl::context> ssl_ctx_;
-    StreamVariant stream_;
+    bool is_tls_{};
+    ssl_stream stream_;
 };
