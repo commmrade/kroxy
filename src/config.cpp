@@ -180,19 +180,17 @@ Config parse_config(const std::filesystem::path &path) {
             serv.options.pass_tls_cert_path = pass_tls_cert_path;
             serv.options.pass_tls_key_path = pass_tls_key_path;
 
-            // serv.lb_algo = algo;
-
             switch (algo) {
                 case LoadBalancingAlgo::ROUND_ROBIN: {
-                    serv.load_balancer = std::make_unique<RoundRobinSelector>();
+                    serv.load_balancer = std::make_shared<RoundRobinSelector>();
                     break;
                 }
                 case LoadBalancingAlgo::FIRST: {
-                    serv.load_balancer = std::make_unique<FirstSelector>();
+                    serv.load_balancer = std::make_shared<FirstSelector>();
                     break;
                 }
                 case LoadBalancingAlgo::LEAST_CONN: {
-                    serv.load_balancer = std::make_unique<LeastConnectionSelector>();
+                    serv.load_balancer = std::make_shared<LeastConnectionSelector>();
                     break;
                 }
             }
@@ -203,8 +201,9 @@ Config parse_config(const std::filesystem::path &path) {
                 serv.hosts.emplace_back(host_str, port);
             }
 
-            result.servers.servers[serv_block] = std::move(serv);
-            result.servers.servers[serv_block].load_balancer->set_upstream(&result.servers.servers.at(serv_block));
+            auto r = result.servers.servers.emplace(serv_block, std::move(serv));
+            // Since we keep a pointer to serv inside load balancer, it must be set here otherwise the pointer will be invalidated after std::move
+            r.first->second.load_balancer->set_upstream(&r.first->second); // I know this is bad but 1. idc 2. idk other way to do it
         }
     } else {
         throw std::runtime_error("Servers block is empty");

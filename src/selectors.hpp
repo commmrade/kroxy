@@ -12,8 +12,8 @@
 
 struct BalancerData {
     std::string_view URI;
-    std::string_view header_host;
 
+    std::string_view header_host;
     std::string tls_sni;
 
     boost::asio::ip::address client_address;

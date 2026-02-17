@@ -33,6 +33,7 @@ enum class LoadBalancingAlgo : std::uint8_t {
 
 struct Upstream {
     std::shared_ptr<UpstreamSelector> load_balancer;
+
     UpstreamOptions options;
     std::vector<Host> hosts;
 };
