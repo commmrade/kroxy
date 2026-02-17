@@ -149,7 +149,6 @@ void HttpSession::handle_service(
                                                                    self->close_ses();
                                                                    return;
                                                                }
-                                                               std::println("Connected host");
                                                                // if TLS is required, perform SNI + handshake
                                                                if (self->service_sock_->is_tls()) {
                                                                    if (!self->service_sock_->

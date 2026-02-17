@@ -127,8 +127,12 @@ public:
 
     std::string get_sni() {
         assert(is_tls());
-        std::string sni = SSL_get_servername(get_tls_stream().native_handle(), TLSEXT_NAMETYPE_host_name);
-        return sni;
+        const char* r = SSL_get_servername(get_tls_stream().native_handle(), TLSEXT_NAMETYPE_host_name);
+        if (r) {
+            return {r};
+        } else {
+            return "";
+        }
     }
 
     boost::asio::ip::tcp::socket &get_stream() {
@@ -142,14 +146,12 @@ public:
     }
 
     // Called when wrapping client socket, since there is only 1 Server SSL_CTX, it is passed as ref
-    Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx, bool is_tls) : stream_{ctx, ssl_ctx} {
-    }
+    Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx, bool is_tls) : is_tls_(is_tls), stream_{ctx, ssl_ctx} {}
 
     // Called when wrapping a service sock, SSL_CTX is created for each service, therefore it is moved inside here
     Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &&ssl_ctx, bool is_tls)
         : ssl_ctx_{std::move(ssl_ctx)}, is_tls_{is_tls},
-          stream_{ctx, ssl_ctx_.value()} {
-    }
+          stream_{ctx, ssl_ctx_.value()} {}
 
     Stream(const Stream&) = delete;
 
@@ -161,11 +163,6 @@ public:
 
     ~Stream() = default;
 private:
-    static ssl_stream construct_stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx,
-                                          bool is_tls) {
-        return ssl_stream{ctx, ssl_ctx};
-    }
-
     std::optional<boost::asio::ssl::context> ssl_ctx_;
     bool is_tls_{};
     ssl_stream stream_;
