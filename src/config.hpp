@@ -159,7 +159,7 @@ StreamConfig parse_stream(const Json::Value& stream_obj);
 Config parse_config(const std::filesystem::path &path);
 
 struct Config {
-    static Config& instance(const std::filesystem::path &path = "") {
+    static Config& instance(const std::filesystem::path &path = "") { // This default value trick is kinda bad but at least it works
         static Config config = parse_config(path);
         return config;
     }

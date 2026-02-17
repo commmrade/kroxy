@@ -154,9 +154,9 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
         auto write_data = upstream_buf_.data();
 
         service_sock_->async_write(
-            write_data, [self = shared_from_this(), this](const boost::system::error_code &errc,
+            write_data, [self = shared_from_this()](const boost::system::error_code &errc,
                                                           std::size_t bytes_tf) {
-                do_write_service(errc, bytes_tf);
+                self->do_write_service(errc, bytes_tf);
             });
     } else {
         if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
@@ -195,9 +195,9 @@ void StreamSession::do_write_service(const boost::system::error_code &errc, std:
 
 void StreamSession::do_upstream() {
     client_sock_.async_read_some(upstream_buf_.prepare(BUF_SIZE),
-                                 [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                 [self = shared_from_this()](const boost::system::error_code &errc,
                                                                    std::size_t bytes) {
-                                     do_read_client(errc, bytes);
+                                     self->do_read_client(errc, bytes);
                                  });
 }
 
@@ -208,9 +208,9 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
         auto write_data = downstream_buf_.data();
 
         client_sock_.async_write(write_data,
-                                 [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                 [self = shared_from_this()](const boost::system::error_code &errc,
                                                                    std::size_t bytes_tf) {
-                                     do_write_client(errc, bytes_tf);
+                                     self->do_write_client(errc, bytes_tf);
                                  });
     } else {
         if (service_sock_->is_tls()) {
@@ -248,8 +248,8 @@ void StreamSession::do_write_client(const boost::system::error_code &errc, std::
 
 void StreamSession::do_downstream() {
     service_sock_->async_read_some(downstream_buf_.prepare(BUF_SIZE),
-                                   [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                   [self = shared_from_this()](const boost::system::error_code &errc,
                                                                      std::size_t bytes_tf) {
-                                       do_read_service(errc, bytes_tf);
+                                       self->do_read_service(errc, bytes_tf);
                                    });
 }

@@ -6,11 +6,10 @@
 
 Server::Server(boost::asio::io_context &ctx) : ctx_(ctx), acceptor_(ctx) {
     auto &cfg_ = Config::instance();
-    const auto port = Config::instance().get_port();
+    const auto port = cfg_.get_port();
     setup_socket(ctx, port);
 
     if (cfg_.is_tls_enabled()) {
-        std::println("enable");
         ssl_ctx_.use_certificate_chain_file(cfg_.get_tls_cert_path());
         ssl_ctx_.use_private_key_file(cfg_.get_tls_key_path(), boost::asio::ssl::context_base::file_format::pem);
         if (cfg_.get_tls_verify_client()) {

@@ -78,7 +78,7 @@ void HttpSession::log() {
     }
 }
 
-void HttpSession::handle_service(
+void HttpSession::setup_service(
     [[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body> &msg) {
 
     // Data that balancers can use to route
@@ -225,7 +225,7 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
                                                   self->do_write_service_header(errc, bytes_tf);
                                               });
         } else {
-            handle_service(msg);
+            setup_service(msg);
         }
     } else {
         if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
@@ -274,8 +274,8 @@ void HttpSession::do_read_client_body(const boost::system::error_code &errc, [[m
 
         service_sock_->async_write_message(
             *request_s_,
-            [self = shared_from_this(), this](const boost::system::error_code &errc, std::size_t bytes_tf) {
-                do_write_service_body(errc, bytes_tf);
+            [self = shared_from_this()](const boost::system::error_code &errc, std::size_t bytes_tf) {
+                self->do_write_service_body(errc, bytes_tf);
             });
     } else {
         if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
@@ -321,18 +321,18 @@ void HttpSession::do_upstream() {
 
             client_sock_.async_read_header(upstream_buf_,
                                            *request_p_,
-                                           [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                           [self = shared_from_this()](const boost::system::error_code &errc,
                                                                              [[maybe_unused]] std::size_t bytes_tf) {
-                                               do_read_client_header(errc, bytes_tf);
+                                               self->do_read_client_header(errc, bytes_tf);
                                            });
             break;
         }
         case State::BODY: {
             client_sock_.async_read_message(upstream_buf_,
                                             *request_p_,
-                                            [self = shared_from_this(), this](
+                                            [self = shared_from_this()](
                                         const boost::system::error_code &errc, std::size_t bytes_tf) {
-                                                do_read_client_body(errc, bytes_tf);
+                                                self->do_read_client_body(errc, bytes_tf);
                                             });
             break;
         }
@@ -350,9 +350,9 @@ void HttpSession::do_read_service_header(const boost::system::error_code &errc, 
 
         response_s_.emplace(msg);
         client_sock_.async_write_header(*response_s_,
-                                        [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                        [self = shared_from_this()](const boost::system::error_code &errc,
                                                                           [[maybe_unused]] std::size_t bytes_tf) {
-                                            do_write_client_header(errc, bytes_tf);
+                                            self->do_write_client_header(errc, bytes_tf);
                                         });
     } else {
         if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
@@ -397,8 +397,8 @@ void HttpSession::do_read_service_body(const boost::system::error_code &errc, [[
 
         client_sock_.async_write_message(
             *response_s_,
-            [self = shared_from_this(), this](const boost::system::error_code &errc, std::size_t bytes_tf) {
-                do_write_client_body(errc, bytes_tf);
+            [self = shared_from_this()](const boost::system::error_code &errc, std::size_t bytes_tf) {
+                self->do_write_client_body(errc, bytes_tf);
             });
     } else {
         if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
@@ -442,18 +442,18 @@ void HttpSession::do_downstream() {
 
             service_sock_->async_read_header(downstream_buf_,
                                              *response_p_,
-                                             [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                             [self = shared_from_this()](const boost::system::error_code &errc,
                                                                                [[maybe_unused]] std::size_t bytes_tf) {
-                                                 do_read_service_header(errc, bytes_tf);
+                                                 self->do_read_service_header(errc, bytes_tf);
                                              });
             break;
         }
         case State::BODY: {
             service_sock_->async_read_message(downstream_buf_,
                                               *response_p_,
-                                              [self = shared_from_this(), this](const boost::system::error_code &errc,
+                                              [self = shared_from_this()](const boost::system::error_code &errc,
                                           [[maybe_unused]] std::size_t bytes_tf) {
-                                                  do_read_service_body(errc, bytes_tf);
+                                                  self->do_read_service_body(errc, bytes_tf);
                                               });
             break;
         }
