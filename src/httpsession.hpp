@@ -10,7 +10,7 @@
 #include "utils.hpp"
 
 class HttpSession : public Session, public std::enable_shared_from_this<HttpSession> {
-private:
+public:
     template<bool isRequest, class Body>
     void process_headers(boost::beast::http::message<isRequest, Body> &msg) {
         // TODO: real implementation, for now its mock
@@ -41,8 +41,7 @@ private:
     void do_downstream();
 
 public:
-    HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
-                boost::asio::ssl::context &&ssl_clnt_ctx, bool is_client_tls, bool is_service_tls);
+    HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx, bool is_client_tls);
 
     HttpSession(const HttpSession &) = delete;
 
@@ -50,7 +49,7 @@ public:
 
     ~HttpSession() override = default;
 
-    void run() override;
+    void run(Upstream& upstream) override;
 private:
     void check_log();
     void log();
@@ -84,4 +83,6 @@ private:
     std::optional<std::string> request_method_;
     std::optional<unsigned int> http_status_{};
     std::optional<std::string> user_agent_;
+
+    Upstream upstream_;
 };

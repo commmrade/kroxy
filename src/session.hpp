@@ -8,9 +8,8 @@ class Stream;
 
 class Session {
 public:
-    Session(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
-            boost::asio::ssl::context &&ssl_clnt_ctx, bool is_service_tls, bool is_client_tls)
-        : client_sock_(ctx, ssl_srv_ctx, is_client_tls), service_sock_(ctx, std::move(ssl_clnt_ctx), is_service_tls) {
+    Session(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx, bool is_client_tls)
+        : client_sock_(ctx, ssl_srv_ctx, is_client_tls) {
     }
 
     virtual ~Session() {
@@ -25,11 +24,13 @@ public:
 
     Session &operator=(Session &&) = delete;
 
-    virtual void run() = 0;
+    virtual void run(Upstream& upstream) = 0;
 
     void close_ses() {
         client_sock_.socket().close();
-        service_sock_.socket().close();
+        if (service_sock_) {
+            service_sock_->socket().close();
+        }
     }
 
     Stream &get_client() {
@@ -37,10 +38,10 @@ public:
     }
 
     Stream &get_service() {
-        return service_sock_;
+        return *service_sock_.get();
     }
 
 protected:
     Stream client_sock_;
-    Stream service_sock_;
+    std::unique_ptr<Stream> service_sock_;
 };
