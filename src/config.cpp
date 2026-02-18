@@ -73,73 +73,8 @@ HttpConfig parse_http(const Json::Value& http_obj) {
             cfg.headers[key] = value.asString();
         }
     }
-    return cfg;
-}
 
-StreamConfig parse_stream(const Json::Value& stream_obj) {
-    if (stream_obj.empty()) {
-        throw std::runtime_error("Stream is empty");
-    }
-    StreamConfig cfg;
-    cfg.port = static_cast<unsigned short>(stream_obj.get("port", DEFAULT_PORT).asInt());
-    cfg.timeout_ms = stream_obj.get("timeout_ms", DEFAULT_TIMEOUT).asUInt();
-    cfg.pass_to = stream_obj.get("pass_to", "").asString();
-    if (cfg.pass_to.empty()) {
-        throw std::runtime_error("Pass_to is not defined");
-    }
-
-    cfg.tls_enabled = stream_obj.get("tls_enabled", false).asBool();
-    cfg.tls_cert_path = stream_obj.get("tls_cert_path", "").asString();
-    cfg.tls_key_path = stream_obj.get("tls_key_path", "").asString();
-
-    if (cfg.tls_enabled && (cfg.tls_cert_path.empty() || cfg.tls_key_path.empty())) {
-        throw std::runtime_error("TLS enabled, but tls_cert_path or tls_key_path is empty");
-    }
-
-    cfg.pass_tls_enabled = stream_obj.get("pass_tls_enabled", false).asBool();
-    cfg.pass_tls_cert_path = stream_obj.get("pass_tls_cert_path", "").asString();
-    cfg.pass_tls_key_path = stream_obj.get("pass_tls_key_path", "").asString();
-
-    if (cfg.pass_tls_enabled && (cfg.pass_tls_cert_path.empty() || cfg.pass_tls_key_path.empty())) {
-        throw std::runtime_error("TLS enabled, but pass_cert_path or pass_key_path is empty");
-    }
-
-    cfg.tls_verify_client = stream_obj.get("tls_verify_client", false).asBool();
-    cfg.pass_tls_verify = stream_obj.get("pass_tls_verify", false).asBool();
-
-    cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
-
-    return cfg;
-}
-
-Config parse_config(const std::filesystem::path &path) {
-    std::ifstream file{path};
-    if (!file.is_open()) {
-        throw std::runtime_error("File is not opened");
-    }
-
-    Json::Value json;
-    Json::CharReaderBuilder const builder;
-    JSONCPP_STRING errs;
-    if (!Json::parseFromStream(builder, file, &json, &errs)) {
-        throw std::runtime_error("Was unable to parse JSON config");
-    }
-    assert(json.isObject());
-
-    Config result;
-    if (json.isMember("stream")) {
-        // parse stream settings
-        const auto &stream_obj = json["stream"];
-        result.server_config = parse_stream(stream_obj);
-    } else if (json.isMember("http")) {
-        // parse http settings
-        const auto &http_obj = json["http"];
-        result.server_config = parse_http(http_obj);
-    } else {
-        throw std::runtime_error{"Server configuration not found"};
-    }
-
-    auto servers_obj = json["servers"];
+    const auto& servers_obj = http_obj["servers"];
     if (servers_obj.isObject() && !servers_obj.empty()) {
         for (const auto &serv_block: servers_obj.getMemberNames()) {
             const auto &block = servers_obj[serv_block];
@@ -201,7 +136,7 @@ Config parse_config(const std::filesystem::path &path) {
                 serv.hosts.emplace_back(host_str, port);
             }
 
-            auto r = result.servers.servers.emplace(serv_block, std::move(serv));
+            auto r = cfg.servers.servers.emplace(serv_block, std::move(serv));
             // Since we keep a pointer to serv inside load balancer, it must be set here otherwise the pointer will be invalidated after std::move
             r.first->second.load_balancer->set_upstream(r.first->second); // I know this is bad but 1. idc 2. idk other way to do it
         }
@@ -209,8 +144,82 @@ Config parse_config(const std::filesystem::path &path) {
         throw std::runtime_error("Servers block is empty");
     }
 
-    if (!result.servers.servers.contains(result.get_pass_to())) {
-        throw std::runtime_error("Incorrect pass to was supplied. Such server does not exist");
+
+
+    return cfg;
+}
+
+StreamConfig parse_stream(const Json::Value& stream_obj) {
+    if (stream_obj.empty()) {
+        throw std::runtime_error("Stream is empty");
+    }
+    StreamConfig cfg;
+    cfg.port = static_cast<unsigned short>(stream_obj.get("port", DEFAULT_PORT).asInt());
+    cfg.timeout_ms = stream_obj.get("timeout_ms", DEFAULT_TIMEOUT).asUInt();
+    cfg.pass_to = stream_obj.get("pass_to", "").asString();
+    if (cfg.pass_to.empty()) {
+        throw std::runtime_error("Pass_to is not defined");
+    }
+
+    cfg.tls_enabled = stream_obj.get("tls_enabled", false).asBool();
+    cfg.tls_cert_path = stream_obj.get("tls_cert_path", "").asString();
+    cfg.tls_key_path = stream_obj.get("tls_key_path", "").asString();
+
+    if (cfg.tls_enabled && (cfg.tls_cert_path.empty() || cfg.tls_key_path.empty())) {
+        throw std::runtime_error("TLS enabled, but tls_cert_path or tls_key_path is empty");
+    }
+
+    cfg.pass_tls_enabled = stream_obj.get("pass_tls_enabled", false).asBool();
+    cfg.pass_tls_cert_path = stream_obj.get("pass_tls_cert_path", "").asString();
+    cfg.pass_tls_key_path = stream_obj.get("pass_tls_key_path", "").asString();
+
+    if (cfg.pass_tls_enabled && (cfg.pass_tls_cert_path.empty() || cfg.pass_tls_key_path.empty())) {
+        throw std::runtime_error("TLS enabled, but pass_cert_path or pass_key_path is empty");
+    }
+
+    cfg.tls_verify_client = stream_obj.get("tls_verify_client", false).asBool();
+    cfg.pass_tls_verify = stream_obj.get("pass_tls_verify", false).asBool();
+
+    cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
+
+    return cfg;
+}
+
+Config parse_config(const std::filesystem::path &path) {
+    std::ifstream file{path};
+    if (!file.is_open()) {
+        throw std::runtime_error("File is not opened");
+    }
+
+    Json::Value json;
+    Json::CharReaderBuilder const builder;
+    JSONCPP_STRING errs;
+    if (!Json::parseFromStream(builder, file, &json, &errs)) {
+        throw std::runtime_error("Was unable to parse JSON config");
+    }
+    assert(json.isObject());
+
+    Config result;
+    if (json.isMember("stream")) {
+        // parse stream settings
+        const auto &stream_obj = json["stream"];
+        result.server_config = parse_stream(stream_obj);
+
+        auto& cfg = std::get<StreamConfig>(result.server_config);
+        if (!cfg.servers.servers.contains(cfg.pass_to)) {
+            throw std::runtime_error("Incorrect pass to was supplied. Such server does not exist");
+        }
+    } else if (json.isMember("http")) {
+        // parse http settings
+        const auto &http_obj = json["http"];
+        result.server_config = parse_http(http_obj);
+
+        auto& cfg = std::get<HttpConfig>(result.server_config);
+        if (!cfg.servers.servers.contains(cfg.pass_to)) {
+            throw std::runtime_error("Incorrect pass to was supplied. Such server does not exist");
+        }
+    } else {
+        throw std::runtime_error{"Server configuration not found"};
     }
 
     return result;
@@ -224,6 +233,16 @@ std::string Config::get_pass_to() const {
     } else {
         auto serv_cfg = std::get<HttpConfig>(server_config);
         return serv_cfg.pass_to;
+    }
+}
+
+const Upstream &Config::get_upstream() {
+    if (std::holds_alternative<StreamConfig>(server_config)) {
+        auto& cfg = std::get<StreamConfig>(server_config);
+        return cfg.servers.servers[cfg.pass_to];
+    } else {
+        auto& cfg = std::get<HttpConfig>(server_config);
+        return cfg.servers.servers[cfg.pass_to];
     }
 }
 

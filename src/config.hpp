@@ -123,6 +123,8 @@ struct StreamConfig {
 
     std::string file_log;
     LogFormat format_log;
+
+    Servers servers;
 };
 
 // Right now these two are similar, but what if other fields are added. That's why they are in a std::variant<...>
@@ -146,6 +148,8 @@ struct HttpConfig {
 
     std::string file_log;
     LogFormat format_log;
+
+    Servers servers;
 };
 
 static constexpr unsigned short DEFAULT_PORT = 8080;
@@ -165,7 +169,7 @@ struct Config {
     }
 
     std::variant<StreamConfig, HttpConfig> server_config;
-    Servers servers;
+    // Servers servers;
 
     bool is_stream() const {
         return std::holds_alternative<StreamConfig>(server_config);
@@ -175,9 +179,7 @@ struct Config {
 
     unsigned short get_port() const;
 
-    const Upstream &get_upstream() {
-        return servers.servers[get_pass_to()];
-    }
+    const Upstream &get_upstream();
 
     bool is_tls_enabled() const;
 

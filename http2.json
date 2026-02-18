@@ -1,0 +1,78 @@
+{
+  "servers": {
+    "google": {
+      "pass_tls_enabled": false,
+      "hosts": [
+        { "host": "google.com", "port": 80 }
+      ]
+    },
+
+    "google-tls": {
+      "pass_tls_enabled": true,
+      "hosts": [
+        { "host": "google.com", "port": 443 }
+      ]
+    },
+
+    "fuck": {
+      "balancing_algo": "round_robin",
+      "hosts": [
+        { "host": "127.0.0.1", "port": 9090 },
+        { "host": "127.0.0.1", "port": 9091 },
+        { "host": "127.0.0.1", "port": 9092 }
+      ]
+    },
+
+    "fuck-tls": {
+      "pass_tls_enabled": true,
+      "pass_tls_verify": false,
+      "pass_tls_cert_path": "../tls/certificate.crt",
+      "pass_tls_key_path": "../tls/private.key",
+      "hosts": [
+        { "host": "127.0.0.1", "port": 9090 }
+      ]
+    },
+
+    "vk": {
+      "pass_tls_enabled": false,
+      "hosts": [
+        { "host": "vk.com", "port": 80 }
+      ]
+    },
+
+    "vk-tls": {
+      "pass_tls_enabled": true,
+      "pass_tls_verify": true,
+      "hosts": [
+        { "host": "vk.com", "port": 443 }
+      ]
+    },
+
+    "httpbin": {
+      "pass_tls_enabled": true,
+      "hosts": [
+        { "host": "httpbin.org", "port": 443 }
+      ]
+    }
+  },
+
+  "http": {
+    "port": 8080,
+    "headers": {
+      "Host": "$host",
+      "X-Real-IP": "$addr"
+    },
+
+    "tls_enabled": false,
+    "tls_cert_path": "../tls/certificate.crt",
+    "tls_key_path": "../tls/private.key",
+
+    "tls_verify_client": false,
+
+    "file_log": "/dev/stdout",
+    "format_log": "URI: $request_uri, method $request_method, status: $status, user agent: $http_user_agent, $bytes_sent haha",
+
+    "timeout_ms": 5000,
+    "pass_to": "httpbin"
+  }
+}
