@@ -29,7 +29,8 @@ enum class LoadBalancingAlgo : std::uint8_t {
     ROUND_ROBIN,
     FIRST,
     LEAST_CONN,
-    HOST
+    HOST,
+    SNI,
 };
 
 struct Upstream {

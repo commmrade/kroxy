@@ -34,6 +34,10 @@ void StreamSession::handle_service() {
     auto &cfg = Config::instance();
     auto &upstream = cfg.get_upstream();
     auto [host, idx] = upstream.load_balancer->select_host(data);
+    if (host.host.empty()) {
+        std::println("Host is empty, dropping session");
+        return;
+    }
     session_idx_ = idx;
 
     bool host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);

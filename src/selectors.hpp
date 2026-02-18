@@ -86,6 +86,9 @@ public:
     std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) override;
 };
 
-
+class SNIBasedSelector : public UpstreamSelector {
+public:
+    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) override;
+};
 
 #endif //KROXY_SELECTORS_HPP

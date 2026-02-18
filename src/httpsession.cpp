@@ -78,7 +78,7 @@ void HttpSession::log() {
     }
 }
 
-void HttpSession::setup_service(
+void HttpSession::handle_service(
     [[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body> &msg) {
 
     // Data that balancers can use to route
@@ -97,10 +97,13 @@ void HttpSession::setup_service(
     auto &cfg = Config::instance();
     auto &upstream = cfg.get_upstream();
 
+    std::println("HOST IS: {}", data.tls_sni);
     auto [host, idx] = upstream.load_balancer->select_host(data);
     if (host.host.empty()) {
-        // TODO: Handle
+        std::println("Host is empty, dropping session");
+        return;
     }
+
     session_idx_ = idx;
 
     bool host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
@@ -228,7 +231,7 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
                                                   self->do_write_service_header(errc, bytes_tf);
                                               });
         } else {
-            setup_service(msg);
+            handle_service(msg);
         }
     } else {
         if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
