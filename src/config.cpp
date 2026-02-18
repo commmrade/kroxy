@@ -104,6 +104,8 @@ HttpConfig parse_http(const Json::Value& http_obj) {
                     return LoadBalancingAlgo::LEAST_CONN;
                 } else if (algo_str == "round_robin" || algo_str.empty()) {
                     return LoadBalancingAlgo::ROUND_ROBIN;
+                } else if (algo_str == "host") {
+                    return LoadBalancingAlgo::HOST;
                 } else {
                     throw std::runtime_error("Unknown balancing algorithm");
                 }
@@ -126,6 +128,10 @@ HttpConfig parse_http(const Json::Value& http_obj) {
                 }
                 case LoadBalancingAlgo::LEAST_CONN: {
                     serv.load_balancer = std::make_shared<LeastConnectionSelector>();
+                    break;
+                }
+                case LoadBalancingAlgo::HOST: {
+                    serv.load_balancer = std::make_shared<HostBasedSelector>();
                     break;
                 }
             }

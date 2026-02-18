@@ -75,6 +75,20 @@
             "port": 443
           }
         ]
+      },
+      "routing": {
+        "balancing_algo": "host",
+        "pass_tls_enabled": true,
+        "hosts": [
+          {
+            "host": "httpbin.org",
+            "port": 443
+          },
+          {
+            "host": "google.com",
+            "port": 443
+          }
+        ]
       }
     },
 
@@ -91,6 +105,6 @@
     "file_log": "/dev/stdout",
     "format_log": "URI: $request_uri, method $request_method, status: $status, user agent: $http_user_agent, $bytes_sent haha",
     "timeout_ms": 5000,
-    "pass_to": "httpbin"
+    "pass_to": "routing"
   }
 }
