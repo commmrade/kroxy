@@ -203,7 +203,7 @@ Config parse_config(const std::filesystem::path &path) {
 
             auto r = result.servers.servers.emplace(serv_block, std::move(serv));
             // Since we keep a pointer to serv inside load balancer, it must be set here otherwise the pointer will be invalidated after std::move
-            r.first->second.load_balancer->set_upstream(&r.first->second); // I know this is bad but 1. idc 2. idk other way to do it
+            r.first->second.load_balancer->set_upstream(r.first->second); // I know this is bad but 1. idc 2. idk other way to do it
         }
     } else {
         throw std::runtime_error("Servers block is empty");

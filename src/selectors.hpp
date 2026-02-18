@@ -33,12 +33,8 @@ public:
 
     UpstreamSelector& operator=(UpstreamSelector&&) = delete;
 
-    void set_upstream(Upstream *serv) {
-        serv_ = serv;
-    }
-
-    [[nodiscard]] UpstreamOptions options() const {
-        return serv_->options;
+    void set_upstream(Upstream &serv) {
+        hosts_ = &serv.hosts;
     }
 
     virtual std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) = 0;
@@ -48,13 +44,13 @@ public:
     }
 
 protected:
-    Upstream* serv_ = nullptr;
+    std::vector<Host>* hosts_ = nullptr;
 };
 
 class FirstSelector : public UpstreamSelector {
 public:
     std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) override {
-        return {serv_->hosts[0], 0};
+        return std::pair<Host, std::size_t>{*hosts_->begin(), 0};
     }
 };
 
