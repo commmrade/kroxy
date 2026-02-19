@@ -62,6 +62,10 @@ private:
 
     void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body>& msg);
 
+    void handle_timer(const boost::system::error_code& errc);
+
+    void prepare_timer(boost::asio::steady_timer& timer, const std::size_t timeout_ms);
+
     enum class State : std::uint8_t {
         HEADERS,
         BODY // Need to switch back to headers after whole body is written -> use Content-Length for this i suppose
@@ -84,8 +88,8 @@ private:
     State downstream_state_{};
 
     // Timeout stuff
-    // boost::asio::steady_timer upstream_deadline_;
-    // boost::asio::steady_timer downstream_deadline_;
+    boost::asio::steady_timer upstream_timer_;
+    boost::asio::steady_timer downstream_timer_;
 
     // Logging stuff
     std::optional<Logger> logger_; // May not be used, if file_log is null

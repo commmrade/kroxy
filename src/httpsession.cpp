@@ -10,8 +10,17 @@ HttpSession::HttpSession(HttpConfig &cfg,
                          boost::asio::io_context &ctx,
                          boost::asio::ssl::context &ssl_srv_ctx,
                          bool is_client_tls)
-    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg) {
+    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg), upstream_timer_(ctx), downstream_timer_(ctx) {
     if (!cfg_.file_log.empty()) { logger_.emplace(cfg_.file_log); }
+
+    upstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
+    upstream_timer_.async_wait([this](const boost::system::error_code &errc) {
+        handle_timer(errc);
+    });
+    downstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
+    downstream_timer_.async_wait([this](const boost::system::error_code &errc) {
+        handle_timer(errc);
+    });
 }
 
 void HttpSession::run() {
@@ -80,7 +89,6 @@ void HttpSession::log() {
 
 void HttpSession::handle_service(
     [[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body> &msg) {
-
     // Data that balancers can use to route
     BalancerData data;
     if (client_sock_.is_tls()) {
@@ -208,6 +216,22 @@ void HttpSession::handle_service(
                             }); // async_resolve
 }
 
+void HttpSession::handle_timer(const boost::system::error_code& errc) {
+    if (!errc) {
+        std::println("Timed out");
+        close_ses(); // TODO: handle this
+    } else {
+        std::println("Timer failed: {}", errc.message());
+    }
+}
+
+void HttpSession::prepare_timer(boost::asio::steady_timer& timer, const std::size_t timeout_ms) {
+    timer.expires_after(std::chrono::milliseconds(timeout_ms));
+    timer.async_wait([self = shared_from_this()](const boost::system::error_code &errc) {
+        self->handle_timer(errc);
+    });
+}
+
 void HttpSession::do_read_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
     if (!errc) {
         auto &msg = request_p_.value().get();
@@ -324,15 +348,18 @@ void HttpSession::do_upstream() {
             upstream_buf_.clear();
             start_time_.emplace(std::chrono::high_resolution_clock::now());
 
+            prepare_timer(upstream_timer_, cfg_.clnt_header_timeout_ms);
             client_sock_.async_read_header(upstream_buf_,
                                            *request_p_,
                                            [self = shared_from_this()](const boost::system::error_code &errc,
-                                                                             [[maybe_unused]] std::size_t bytes_tf) {
+                                                                       [[maybe_unused]] std::size_t bytes_tf) {
                                                self->do_read_client_header(errc, bytes_tf);
                                            });
             break;
         }
         case State::BODY: {
+
+            prepare_timer(upstream_timer_, cfg_.clnt_body_timeout_ms);
             client_sock_.async_read_message(upstream_buf_,
                                             *request_p_,
                                             [self = shared_from_this()](
@@ -354,9 +381,11 @@ void HttpSession::do_read_service_header(const boost::system::error_code &errc, 
         http_status_.emplace(static_cast<unsigned int>(msg.base().result()));
 
         response_s_.emplace(msg);
+
+        prepare_timer(downstream_timer_, cfg_.send_timeout_ms);
         client_sock_.async_write_header(*response_s_,
                                         [self = shared_from_this()](const boost::system::error_code &errc,
-                                                                          [[maybe_unused]] std::size_t bytes_tf) {
+                                                                    [[maybe_unused]] std::size_t bytes_tf) {
                                             self->do_write_client_header(errc, bytes_tf);
                                         });
     } else {
@@ -400,6 +429,7 @@ void HttpSession::do_read_service_body(const boost::system::error_code &errc, [[
         response_p_->get().body().data = ds_buf_.data();
         response_p_->get().body().more = !response_p_->is_done();
 
+        prepare_timer(downstream_timer_, cfg_.send_timeout_ms);
         client_sock_.async_write_message(
             *response_s_,
             [self = shared_from_this()](const boost::system::error_code &errc, std::size_t bytes_tf) {
@@ -448,7 +478,7 @@ void HttpSession::do_downstream() {
             service_sock_->async_read_header(downstream_buf_,
                                              *response_p_,
                                              [self = shared_from_this()](const boost::system::error_code &errc,
-                                                                               [[maybe_unused]] std::size_t bytes_tf) {
+                                                                         [[maybe_unused]] std::size_t bytes_tf) {
                                                  self->do_read_service_header(errc, bytes_tf);
                                              });
             break;
@@ -457,7 +487,7 @@ void HttpSession::do_downstream() {
             service_sock_->async_read_message(downstream_buf_,
                                               *response_p_,
                                               [self = shared_from_this()](const boost::system::error_code &errc,
-                                          [[maybe_unused]] std::size_t bytes_tf) {
+                                                                          [[maybe_unused]] std::size_t bytes_tf) {
                                                   self->do_read_service_body(errc, bytes_tf);
                                               });
             break;

@@ -98,7 +98,7 @@
       "Host": "$host",
       "X-Real-IP": "$addr"
     },
-    "tls_enabled": true,
+    "tls_enabled": false,
     "tls_cert_path": "../tls/certificate.crt",
     "tls_key_path": "../tls/private.key",
     "tls_verify_client": false,
@@ -112,6 +112,6 @@
     "connect_timeout": 60000,
     "resolve_timeout": 60000,
 
-    "pass_to": "routing"
+    "pass_to": "httpbin"
   }
 }

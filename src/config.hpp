@@ -164,7 +164,7 @@ struct HttpConfig {
 };
 
 static constexpr unsigned short DEFAULT_PORT = 8080;
-static constexpr std::size_t DEFAULT_TIMEOUT = 1000; // TODO: every default timeout
+static constexpr std::size_t DEFAULT_TIMEOUT = 60000; // TODO: every default timeout
 
 static constexpr std::size_t DEFAULT_CLIENT_HEADER_TIMEOUT = DEFAULT_TIMEOUT;
 static constexpr std::size_t DEFAULT_CLIENT_BODY_TIMEOUT = DEFAULT_TIMEOUT;
