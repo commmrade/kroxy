@@ -83,6 +83,10 @@ private:
     std::array<char, BUF_SIZE> ds_buf_{};
     State downstream_state_{};
 
+    // Timeout stuff
+    boost::asio::steady_timer upstream_deadline_;
+    boost::asio::steady_timer downstream_deadline_;
+
     // Logging stuff
     std::optional<Logger> logger_; // May not be used, if file_log is null
     std::optional<std::size_t> bytes_sent_{};

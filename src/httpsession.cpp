@@ -97,7 +97,6 @@ void HttpSession::handle_service(
     auto &cfg = Config::instance();
     auto &upstream = cfg.get_upstream();
 
-    std::println("HOST IS: {}", data.tls_sni);
     auto [host, idx] = upstream.load_balancer->select_host(data);
     if (host.host.empty()) {
         std::println("Host is empty, dropping session");

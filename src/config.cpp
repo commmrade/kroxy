@@ -38,7 +38,13 @@ HttpConfig parse_http(const Json::Value& http_obj) {
 
     HttpConfig cfg;
     cfg.port = static_cast<unsigned short>(http_obj.get("port", DEFAULT_PORT).asInt());
-    cfg.timeout_ms = http_obj.get("timeout_ms", DEFAULT_TIMEOUT).asUInt();
+
+    cfg.clnt_header_timeout_ms = http_obj.get("client_header_timeout", DEFAULT_CLIENT_HEADER_TIMEOUT).asUInt64();
+    cfg.clnt_body_timeout_ms = http_obj.get("client_body_timeout", DEFAULT_CLIENT_BODY_TIMEOUT).asUInt64();
+    cfg.send_timeout_ms = http_obj.get("send_timeout", DEFAULT_SEND_TIMEOUT).asUInt64();
+    cfg.connect_timeout_ms = http_obj.get("connect_timeout", DEFAULT_CONNECT_TIMEOUT).asUInt64();
+    cfg.resolve_timeout_ms = http_obj.get("resolve_timeout", DEFAULT_RESOLVE_TIMEOUT).asUInt64();
+
     cfg.pass_to = http_obj.get("pass_to", "").asString();
     if (cfg.pass_to.empty()) {
         throw std::runtime_error("Pass_to is not defined");
@@ -167,7 +173,12 @@ StreamConfig parse_stream(const Json::Value& stream_obj) {
     }
     StreamConfig cfg;
     cfg.port = static_cast<unsigned short>(stream_obj.get("port", DEFAULT_PORT).asInt());
-    cfg.timeout_ms = stream_obj.get("timeout_ms", DEFAULT_TIMEOUT).asUInt();
+
+    cfg.read_timeout_ms = stream_obj.get("read_timeout", DEFAULT_READ_TIMEOUT).asUInt64();
+    cfg.send_timeout_ms = stream_obj.get("send_timeout", DEFAULT_SEND_TIMEOUT).asUInt64();
+    cfg.connect_timeout_ms = stream_obj.get("connect_timeout", DEFAULT_CONNECT_TIMEOUT).asUInt64();
+    cfg.resolve_timeout = stream_obj.get("resolve_timeout", DEFAULT_RESOLVE_TIMEOUT).asUInt64();
+
     cfg.pass_to = stream_obj.get("pass_to", "").asString();
     if (cfg.pass_to.empty()) {
         throw std::runtime_error("Pass_to is not defined");

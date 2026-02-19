@@ -108,8 +108,12 @@ struct LogFormat {
 
 struct StreamConfig {
     unsigned short port{};
-    std::size_t timeout_ms{};
     std::string pass_to;
+
+    std::size_t read_timeout_ms{};
+    std::size_t send_timeout_ms{};
+    std::size_t connect_timeout_ms{};
+    std::size_t resolve_timeout{};
 
     // kroxy server tls stuff
     bool tls_enabled{};
@@ -133,8 +137,13 @@ struct StreamConfig {
 struct HttpConfig {
     unsigned short port{};
     std::unordered_map<std::string, std::string> headers;
-    std::size_t timeout_ms{};
     std::string pass_to;
+
+    std::size_t clnt_header_timeout_ms{};
+    std::size_t clnt_body_timeout_ms{};
+    std::size_t send_timeout_ms{};
+    std::size_t connect_timeout_ms{};
+    std::size_t resolve_timeout_ms{};
 
     // kroxy server tls stuff
     bool tls_enabled{};
@@ -155,7 +164,14 @@ struct HttpConfig {
 };
 
 static constexpr unsigned short DEFAULT_PORT = 8080;
-static constexpr std::size_t DEFAULT_TIMEOUT = 1000;
+static constexpr std::size_t DEFAULT_TIMEOUT = 1000; // TODO: every default timeout
+
+static constexpr std::size_t DEFAULT_CLIENT_HEADER_TIMEOUT = 60000;
+static constexpr std::size_t DEFAULT_CLIENT_BODY_TIMEOUT = 60000;
+static constexpr std::size_t DEFAULT_SEND_TIMEOUT = 60000;
+static constexpr std::size_t DEFAULT_CONNECT_TIMEOUT = 60000;
+static constexpr std::size_t DEFAULT_RESOLVE_TIMEOUT = 60000;
+static constexpr std::size_t DEFAULT_READ_TIMEOUT = 60000;
 
 struct Config;
 
