@@ -8,7 +8,7 @@
 
 StreamSession::StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
                              bool is_client_tls)
-    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg), upstream_timer_(ctx), downstream_timer_(ctx) {
+    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg) {
     if (!cfg_.file_log.empty()) {
         logger_.emplace(cfg_.file_log);
     }
@@ -32,13 +32,14 @@ StreamSession::~StreamSession() {
 }
 
 void StreamSession::handle_timer(const boost::system::error_code &errc) {
-    std::println("timer expired");
     if (!errc) {
         // TODO: do something, just close session for now
         std::println("expired: close session");
         close_ses();
     } else {
-        std::println("Timer failed: {}", errc.message());
+        if (boost::asio::error::operation_aborted != errc) {
+            std::println("Timer failed: {}", errc.message());
+        }
     }
 }
 
@@ -83,6 +84,7 @@ void StreamSession::handle_service() {
     service_sock_ = std::make_unique<Stream>(ioc, std::move(service_ssl_ctx), host_is_tls);
 
     // resolve -> connect -> optional TLS handshake -> do_downstream() && do_upstream()
+    prepare_timer(upstream_timer_, cfg_.resolve_timeout);
     resolver->async_resolve(host.host,
                             std::to_string(host.port),
                             [self = shared_from_this(), resolver, host](
@@ -94,6 +96,7 @@ void StreamSession::handle_service() {
                                     return;
                                 }
 
+                                self->prepare_timer(self->upstream_timer_, self->cfg_.connect_timeout_ms);
                                 boost::asio::async_connect(self->service_sock_->socket(),
                                                            eps,
                                                            [self, host](const boost::system::error_code &errc,
@@ -172,10 +175,12 @@ void StreamSession::log() {
     }
 }
 
-void StreamSession::prepare_timer(boost::asio::steady_timer& timer_, const std::size_t timeout_ms) {
-    timer_.expires_after(std::chrono::milliseconds(timeout_ms));
-    timer_.async_wait([self = shared_from_this()](const boost::system::error_code &errc) {
-        self->handle_timer(errc);
+void StreamSession::prepare_timer(boost::asio::steady_timer& timer, const std::size_t timeout_ms) {
+    timer.expires_after(std::chrono::milliseconds(timeout_ms));
+    timer.async_wait([weak = weak_from_this()](const boost::system::error_code &errc) {
+        if (auto self = weak.lock()) {
+            self->handle_timer(errc);
+        }
     });
 }
 
@@ -248,21 +253,16 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
                                      self->do_write_client(errc, bytes_tf);
                                  });
     } else {
-        if (service_sock_->is_tls()) {
-            std::println("Service reading error: {}", errc.message());
-            close_ses();
-        } else {
-            if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
-                if (client_sock_.is_tls()) {
-                    client_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
-                    });
-                } else {
-                    client_sock_.shutdown();
-                }
+        if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
+            if (client_sock_.is_tls()) {
+                client_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
+                });
             } else {
-                std::println("Reading service error: {}", errc.message());
-                close_ses(); // Hard error
+                client_sock_.shutdown();
             }
+        } else {
+            std::println("Reading service error: {}", errc.message());
+            close_ses(); // Hard error
         }
     }
 }

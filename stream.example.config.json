@@ -29,11 +29,11 @@
         ]
       },
       "httpbin": {
-        "pass_tls_enabled": false,
+        "pass_tls_enabled": true,
         "hosts": [
           {
             "host": "httpbin.org",
-            "port": 80
+            "port": 443
           }
         ]
       },
@@ -50,8 +50,7 @@
 
 
     "port": 8080,
-    "read_timeout": 2000,
-    "pass_to": "google",
+    "pass_to": "httpbin",
     "tls_enabled": false,
     "tls_cert_path": "../tls/certificate.crt",
     "tls_key_path": "../tls/private.key",

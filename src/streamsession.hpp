@@ -43,16 +43,13 @@ private:
 
     void handle_service();
     void handle_timer(const boost::system::error_code& errc);
-    void prepare_timer(boost::asio::steady_timer& timer_, const std::size_t timeout_ms);
+    void prepare_timer(boost::asio::steady_timer& timer, const std::size_t timeout_ms);
 
     StreamConfig &cfg_;
 
     boost::asio::streambuf upstream_buf_;
     boost::asio::streambuf downstream_buf_;
 
-    // these are client-oriented, since clients are presumed to be unreliable and services are fast and reliable
-    boost::asio::steady_timer upstream_timer_; // Used to track reading from client
-    boost::asio::steady_timer downstream_timer_; // Used to track writing to client
 
     // Logging stuff
     std::optional<Logger> logger_;

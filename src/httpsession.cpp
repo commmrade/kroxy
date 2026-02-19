@@ -138,6 +138,7 @@ void HttpSession::handle_service(
     service_sock_ = std::make_unique<Stream>(ioc, std::move(service_ssl_ctx), host_is_tls);
 
     // resolve -> connect -> optional TLS handshake -> do_downstream()
+    prepare_timer(upstream_timer_, cfg_.resolve_timeout_ms);
     resolver->async_resolve(host.host,
                             std::to_string(host.port),
                             [self = shared_from_this(), resolver, host](
@@ -150,6 +151,7 @@ void HttpSession::handle_service(
                                 }
 
                                 // async_connect using the resolved endpoints
+                                self->prepare_timer(self->upstream_timer_, self->cfg_.connect_timeout_ms);
                                 boost::asio::async_connect(self->service_sock_->socket(),
                                                            eps,
                                                            [self, host](const boost::system::error_code &errc,
@@ -221,14 +223,18 @@ void HttpSession::handle_timer(const boost::system::error_code& errc) {
         std::println("Timed out");
         close_ses(); // TODO: handle this
     } else {
-        std::println("Timer failed: {}", errc.message());
+        if (boost::asio::error::operation_aborted != errc) {
+            std::println("Timer failed: {}", errc.message());
+        }
     }
 }
 
 void HttpSession::prepare_timer(boost::asio::steady_timer& timer, const std::size_t timeout_ms) {
     timer.expires_after(std::chrono::milliseconds(timeout_ms));
-    timer.async_wait([self = shared_from_this()](const boost::system::error_code &errc) {
-        self->handle_timer(errc);
+    timer.async_wait([weak = weak_from_this()](const boost::system::error_code &errc) {
+        if (auto self = weak.lock()) {
+            self->handle_timer(errc);
+        }
     });
 }
 
