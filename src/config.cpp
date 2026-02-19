@@ -16,7 +16,7 @@ std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format)
         var_start_pos += 1; // After $
 
         const auto non_alpha_pos = std::find_if(format.begin() + var_start_pos, format.end(), [](const char el) {
-           return !std::isalpha(el) && el != '_';
+            return !std::isalpha(el) && el != '_';
         });
         const auto var_end_pos = static_cast<std::size_t>(std::distance(format.begin(), non_alpha_pos));
 
@@ -31,7 +31,7 @@ std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format)
     return result;
 }
 
-HttpConfig parse_http(const Json::Value& http_obj) {
+HttpConfig parse_http(const Json::Value &http_obj) {
     if (http_obj.empty()) {
         throw std::runtime_error("Http is empty");
     }
@@ -72,7 +72,7 @@ HttpConfig parse_http(const Json::Value& http_obj) {
     // Logs stuff
     cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
 
-    const auto& headers_obj = http_obj["headers"];
+    const auto &headers_obj = http_obj["headers"];
     if (headers_obj.isObject()) {
         for (const auto &key: headers_obj.getMemberNames()) {
             const Json::Value &value = headers_obj[key];
@@ -80,7 +80,7 @@ HttpConfig parse_http(const Json::Value& http_obj) {
         }
     }
 
-    const auto& servers_obj = http_obj["servers"];
+    const auto &servers_obj = http_obj["servers"];
     if (servers_obj.isObject() && !servers_obj.empty()) {
         for (const auto &serv_block: servers_obj.getMemberNames()) {
             const auto &block = servers_obj[serv_block];
@@ -156,18 +156,18 @@ HttpConfig parse_http(const Json::Value& http_obj) {
 
             auto r = cfg.servers.servers.emplace(serv_block, std::move(serv));
             // Since we keep a pointer to serv inside load balancer, it must be set here otherwise the pointer will be invalidated after std::move
-            r.first->second.load_balancer->set_upstream(r.first->second); // I know this is bad but 1. idc 2. idk other way to do it
+            r.first->second.load_balancer->set_upstream(r.first->second);
+            // I know this is bad but 1. idc 2. idk other way to do it
         }
     } else {
         throw std::runtime_error("Servers block is empty");
     }
 
 
-
     return cfg;
 }
 
-StreamConfig parse_stream(const Json::Value& stream_obj) {
+StreamConfig parse_stream(const Json::Value &stream_obj) {
     if (stream_obj.empty()) {
         throw std::runtime_error("Stream is empty");
     }
@@ -205,6 +205,90 @@ StreamConfig parse_stream(const Json::Value& stream_obj) {
 
     cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
 
+    const auto &servers_obj = stream_obj["servers"];
+    if (servers_obj.isObject() && !servers_obj.empty()) {
+        for (const auto &serv_block: servers_obj.getMemberNames()) {
+            const auto &block = servers_obj[serv_block];
+
+            std::optional<bool> pass_tls_enabled;
+            std::optional<bool> pass_tls_verify;
+            std::optional<std::string> pass_tls_cert_path;
+            std::optional<std::string> pass_tls_key_path;
+            if (block.isMember("pass_tls_enabled")) {
+                pass_tls_enabled = block["pass_tls_enabled"].asBool();
+            }
+            if (block.isMember("pass_tls_verify")) {
+                pass_tls_verify = block["pass_tls_verify"].asBool();
+            }
+            if (block.isMember("pass_tls_cert_path")) {
+                pass_tls_cert_path = block["pass_tls_cert_path"].asString();
+            }
+            if (block.isMember("pass_tls_key_path")) {
+                pass_tls_key_path = block["pass_tls_key_path"].asString();
+            }
+
+            LoadBalancingAlgo const algo = [&block]() -> LoadBalancingAlgo {
+                std::string const algo_str = block["balancing_algo"].asString();
+                if (algo_str == "first") {
+                    return LoadBalancingAlgo::FIRST;
+                } else if (algo_str == "least_conn") {
+                    return LoadBalancingAlgo::LEAST_CONN;
+                } else if (algo_str == "round_robin" || algo_str.empty()) {
+                    return LoadBalancingAlgo::ROUND_ROBIN;
+                } else if (algo_str == "host") {
+                    throw std::runtime_error("Can't use 'host' load balancing algorithm in Stream server");
+                } else if (algo_str == "sni") {
+                    throw std::runtime_error("Can't use 'sni' load balancing algorithm in Stream server");
+                } else {
+                    throw std::runtime_error("Unknown balancing algorithm");
+                }
+            }();
+
+            Upstream serv;
+            serv.options.pass_tls_enabled = pass_tls_enabled;
+            serv.options.pass_tls_verify = pass_tls_verify;
+            serv.options.pass_tls_cert_path = pass_tls_cert_path;
+            serv.options.pass_tls_key_path = pass_tls_key_path;
+
+            switch (algo) {
+                case LoadBalancingAlgo::ROUND_ROBIN: {
+                    serv.load_balancer = std::make_shared<RoundRobinSelector>();
+                    break;
+                }
+                case LoadBalancingAlgo::FIRST: {
+                    serv.load_balancer = std::make_shared<FirstSelector>();
+                    break;
+                }
+                case LoadBalancingAlgo::LEAST_CONN: {
+                    serv.load_balancer = std::make_shared<LeastConnectionSelector>();
+                    break;
+                }
+                case LoadBalancingAlgo::HOST: {
+                    throw std::runtime_error("Can't use 'host' load balancing algorithm in Stream server");
+                    break;
+                }
+                case LoadBalancingAlgo::SNI: {
+                    throw std::runtime_error("Can't use 'sni' load balancing algorithm in Stream server");
+                    break;
+                }
+            }
+
+            for (const auto &host: block["hosts"]) {
+                auto host_str = host["host"].asString();
+                auto port = host["port"].asInt();
+                serv.hosts.emplace_back(host_str, port);
+            }
+
+            auto r = cfg.servers.servers.emplace(serv_block, std::move(serv));
+            // Since we keep a pointer to serv inside load balancer, it must be set here otherwise the pointer will be invalidated after std::move
+            r.first->second.load_balancer->set_upstream(r.first->second);
+            // I know this is bad but 1. idc 2. idk other way to do it
+        }
+    } else {
+        throw std::runtime_error("Servers block is empty");
+    }
+
+
     return cfg;
 }
 
@@ -228,7 +312,7 @@ Config parse_config(const std::filesystem::path &path) {
         const auto &stream_obj = json["stream"];
         result.server_config = parse_stream(stream_obj);
 
-        auto& cfg = std::get<StreamConfig>(result.server_config);
+        auto &cfg = std::get<StreamConfig>(result.server_config);
         if (!cfg.servers.servers.contains(cfg.pass_to)) {
             throw std::runtime_error("Incorrect pass to was supplied. Such server does not exist");
         }
@@ -237,7 +321,7 @@ Config parse_config(const std::filesystem::path &path) {
         const auto &http_obj = json["http"];
         result.server_config = parse_http(http_obj);
 
-        auto& cfg = std::get<HttpConfig>(result.server_config);
+        auto &cfg = std::get<HttpConfig>(result.server_config);
         if (!cfg.servers.servers.contains(cfg.pass_to)) {
             throw std::runtime_error("Incorrect pass to was supplied. Such server does not exist");
         }
@@ -261,10 +345,10 @@ std::string Config::get_pass_to() const {
 
 const Upstream &Config::get_upstream() {
     if (std::holds_alternative<StreamConfig>(server_config)) {
-        auto& cfg = std::get<StreamConfig>(server_config);
+        auto &cfg = std::get<StreamConfig>(server_config);
         return cfg.servers.servers[cfg.pass_to];
     } else {
-        auto& cfg = std::get<HttpConfig>(server_config);
+        auto &cfg = std::get<HttpConfig>(server_config);
         return cfg.servers.servers[cfg.pass_to];
     }
 }
@@ -298,6 +382,7 @@ std::string Config::get_tls_cert_path() const {
         return serv_cfg.tls_cert_path;
     }
 }
+
 std::string Config::get_tls_key_path() const {
     if (std::holds_alternative<StreamConfig>(server_config)) {
         auto serv_cfg = std::get<StreamConfig>(server_config);

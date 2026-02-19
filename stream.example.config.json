@@ -1,21 +1,60 @@
 {
-  "servers": {
-    "google": [{ "host": "google.com", "port": 80 }],
-    "google-tls": [{ "host": "google.com", "port": 443, "tls_enabled": true }],
-    "python": [{ "host":  "127.0.0.1", "port":  9999}],
-    "httpbin": [{ "host":  "httpbin.org", "port":  80}],
-    "fuck_it": [{ "host": "odnoklassniki.ru", "port": 80 }]
-  },
-
   "stream": {
-    "port": 8080,
-    "timeout_ms": 500,
-    "pass_to": "google",
+    "servers": {
+      "google": {
+        "pass_tls_enabled": false,
+        "hosts": [
+          {
+            "host": "google.com",
+            "port": 80
+          }
+        ]
+      },
+      "google-tls": {
+        "pass_tls_enabled": true,
+        "hosts": [
+          {
+            "host": "google.com",
+            "port": 443
+          }
+        ]
+      },
+      "python": {
+        "pass_tls_enabled": false,
+        "hosts": [
+          {
+            "host": "127.0.0.1",
+            "port": 9999
+          }
+        ]
+      },
+      "httpbin": {
+        "pass_tls_enabled": false,
+        "hosts": [
+          {
+            "host": "httpbin.org",
+            "port": 80
+          }
+        ]
+      },
+      "fuck_it": {
+        "pass_tls_enabled": false,
+        "hosts": [
+          {
+            "host": "odnoklassniki.ru",
+            "port": 80
+          }
+        ]
+      }
+    },
 
+
+    "port": 8080,
+    "read_timeout": 2000,
+    "pass_to": "google",
     "tls_enabled": false,
     "tls_cert_path": "../tls/certificate.crt",
     "tls_key_path": "../tls/private.key",
-
     "file_log": "/dev/stdout",
     "format_log": "Client address is $client_addr, $bytes_sent bytes have been sent, $processing_time"
   }

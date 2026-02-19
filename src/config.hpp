@@ -110,8 +110,8 @@ struct StreamConfig {
     unsigned short port{};
     std::string pass_to;
 
-    std::size_t read_timeout_ms{};
-    std::size_t send_timeout_ms{};
+    std::size_t read_timeout_ms{}; // Read from client
+    std::size_t send_timeout_ms{}; // Send to server
     std::size_t connect_timeout_ms{};
     std::size_t resolve_timeout{};
 
@@ -166,12 +166,12 @@ struct HttpConfig {
 static constexpr unsigned short DEFAULT_PORT = 8080;
 static constexpr std::size_t DEFAULT_TIMEOUT = 1000; // TODO: every default timeout
 
-static constexpr std::size_t DEFAULT_CLIENT_HEADER_TIMEOUT = 60000;
-static constexpr std::size_t DEFAULT_CLIENT_BODY_TIMEOUT = 60000;
-static constexpr std::size_t DEFAULT_SEND_TIMEOUT = 60000;
-static constexpr std::size_t DEFAULT_CONNECT_TIMEOUT = 60000;
-static constexpr std::size_t DEFAULT_RESOLVE_TIMEOUT = 60000;
-static constexpr std::size_t DEFAULT_READ_TIMEOUT = 60000;
+static constexpr std::size_t DEFAULT_CLIENT_HEADER_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_CLIENT_BODY_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_SEND_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_CONNECT_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_RESOLVE_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_READ_TIMEOUT = DEFAULT_TIMEOUT;
 
 struct Config;
 

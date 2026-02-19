@@ -84,8 +84,8 @@ private:
     State downstream_state_{};
 
     // Timeout stuff
-    boost::asio::steady_timer upstream_deadline_;
-    boost::asio::steady_timer downstream_deadline_;
+    // boost::asio::steady_timer upstream_deadline_;
+    // boost::asio::steady_timer downstream_deadline_;
 
     // Logging stuff
     std::optional<Logger> logger_; // May not be used, if file_log is null

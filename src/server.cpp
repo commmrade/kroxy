@@ -45,7 +45,6 @@ std::shared_ptr<Session> Server::make_session() {
         return std::make_shared<StreamSession>(cfg, ctx_, ssl_ctx_, cfg_.is_tls_enabled());
     } else {
         auto &cfg = std::get<HttpConfig>(cfg_.server_config);
-
         return std::make_shared<HttpSession>(cfg, ctx_, ssl_ctx_, cfg_.is_tls_enabled());
     }
 }

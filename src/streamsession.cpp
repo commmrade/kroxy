@@ -2,16 +2,22 @@
 // Created by klewy on 2/16/26.
 //
 #include "streamsession.hpp"
-
+#include <boost/asio/steady_timer.hpp>
 #include "selectors.hpp"
 #include "utils.hpp"
 
 StreamSession::StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
                              bool is_client_tls)
-    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg) {
+    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg), timer_(ctx) {
     if (!cfg_.file_log.empty()) {
         logger_.emplace(cfg_.file_log);
     }
+
+    timer_.expires_at(boost::asio::steady_timer::time_point::max());
+    timer_.async_wait([this](const boost::system::error_code &errc) {
+        // FIXME: capturinjg this is probably not safe although the object is supposed to live long enough since it is used with async_... handlers, which use shared_from_this()
+        handle_timer(errc);
+    });
 }
 
 StreamSession::~StreamSession() {
@@ -20,6 +26,17 @@ StreamSession::~StreamSession() {
     auto &cfg = Config::instance();
     auto &upstream = cfg.get_upstream();
     upstream.load_balancer->disconnect_host(session_idx_);
+}
+
+void StreamSession::handle_timer(const boost::system::error_code &errc) {
+    std::println("timer expired");
+    if (!errc) {
+        // TODO: do something, just close session for now
+        std::println("expired: close session");
+        close_ses();
+    } else {
+        std::println("Timer failed: {}", errc.message());
+    }
 }
 
 void StreamSession::handle_service() {
@@ -152,14 +169,22 @@ void StreamSession::log() {
     }
 }
 
+void StreamSession::prepare_timer(const std::size_t timeout_ms) {
+    timer_.expires_after(std::chrono::milliseconds(timeout_ms));
+    timer_.async_wait([self = shared_from_this()](const boost::system::error_code &errc) {
+        self->handle_timer(errc);
+    });
+}
+
 void StreamSession::do_read_client(const boost::system::error_code &errc, std::size_t bytes_tf) {
     if (!errc) {
         upstream_buf_.commit(bytes_tf);
         auto write_data = upstream_buf_.data();
 
+        prepare_timer(cfg_.send_timeout_ms);
         service_sock_->async_write(
             write_data, [self = shared_from_this()](const boost::system::error_code &errc,
-                                                          std::size_t bytes_tf) {
+                                                    std::size_t bytes_tf) {
                 self->do_write_service(errc, bytes_tf);
             });
     } else {
@@ -198,9 +223,12 @@ void StreamSession::do_write_service(const boost::system::error_code &errc, std:
 }
 
 void StreamSession::do_upstream() {
+    auto self = shared_from_this();
+
+    prepare_timer(cfg_.read_timeout_ms);
     client_sock_.async_read_some(upstream_buf_.prepare(BUF_SIZE),
-                                 [self = shared_from_this()](const boost::system::error_code &errc,
-                                                                   std::size_t bytes) {
+                                 [self](const boost::system::error_code &errc,
+                                        std::size_t bytes) {
                                      self->do_read_client(errc, bytes);
                                  });
 }
@@ -213,7 +241,7 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
 
         client_sock_.async_write(write_data,
                                  [self = shared_from_this()](const boost::system::error_code &errc,
-                                                                   std::size_t bytes_tf) {
+                                                             std::size_t bytes_tf) {
                                      self->do_write_client(errc, bytes_tf);
                                  });
     } else {
@@ -253,7 +281,7 @@ void StreamSession::do_write_client(const boost::system::error_code &errc, std::
 void StreamSession::do_downstream() {
     service_sock_->async_read_some(downstream_buf_.prepare(BUF_SIZE),
                                    [self = shared_from_this()](const boost::system::error_code &errc,
-                                                                     std::size_t bytes_tf) {
+                                                               std::size_t bytes_tf) {
                                        self->do_read_service(errc, bytes_tf);
                                    });
 }

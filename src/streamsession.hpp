@@ -42,11 +42,15 @@ private:
     void log();
 
     void handle_service();
+    void handle_timer(const boost::system::error_code& errc);
+    void prepare_timer(const std::size_t timeout_ms);
 
     StreamConfig &cfg_;
 
     boost::asio::streambuf upstream_buf_;
     boost::asio::streambuf downstream_buf_;
+
+    boost::asio::steady_timer timer_;
 
     // Logging stuff
     std::optional<Logger> logger_;
