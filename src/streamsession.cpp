@@ -31,17 +31,6 @@ StreamSession::~StreamSession() {
     upstream.load_balancer->disconnect_host(session_idx_);
 }
 
-void StreamSession::handle_timer(const boost::system::error_code &errc) {
-    if (!errc) {
-        // TODO: do something, just close session for now
-        std::println("expired: close session");
-        close_ses();
-    } else {
-        if (boost::asio::error::operation_aborted != errc) {
-            std::println("Timer failed: {}", errc.message());
-        }
-    }
-}
 
 void StreamSession::handle_service() {
     // Setting up data that balancers can use to route
@@ -87,7 +76,7 @@ void StreamSession::handle_service() {
     prepare_timer(upstream_timer_, cfg_.resolve_timeout);
     resolver->async_resolve(host.host,
                             std::to_string(host.port),
-                            [self = shared_from_this(), resolver, host](
+                            [self = shared_from_base<StreamSession>(), resolver, host](
                         const boost::system::error_code &errc,
                         const boost::asio::ip::tcp::resolver::results_type &eps) {
                                 if (errc) {
@@ -175,14 +164,6 @@ void StreamSession::log() {
     }
 }
 
-void StreamSession::prepare_timer(boost::asio::steady_timer& timer, const std::size_t timeout_ms) {
-    timer.expires_after(std::chrono::milliseconds(timeout_ms));
-    timer.async_wait([weak = weak_from_this()](const boost::system::error_code &errc) {
-        if (auto self = weak.lock()) {
-            self->handle_timer(errc);
-        }
-    });
-}
 
 void StreamSession::do_read_client(const boost::system::error_code &errc, std::size_t bytes_tf) {
     if (!errc) {
@@ -190,7 +171,7 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
         auto write_data = upstream_buf_.data();
 
         service_sock_->async_write(
-            write_data, [self = shared_from_this()](const boost::system::error_code &errc,
+            write_data, [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
                                                     std::size_t bytes_tf) {
                 self->do_write_service(errc, bytes_tf);
             });
@@ -202,7 +183,7 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
 
             // Calls either ssl::stream::async_shutdown or socket::shutdown
             if (service_sock_->is_tls()) {
-                service_sock_->async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
+                service_sock_->async_shutdown([self = shared_from_base<StreamSession>()]([[maybe_unused]] const auto &errc) {
                 });
             } else {
                 service_sock_->shutdown();
@@ -230,7 +211,7 @@ void StreamSession::do_write_service(const boost::system::error_code &errc, std:
 }
 
 void StreamSession::do_upstream() {
-    auto self = shared_from_this();
+    auto self = shared_from_base<StreamSession>();
 
     prepare_timer(upstream_timer_, cfg_.read_timeout_ms);
     client_sock_.async_read_some(upstream_buf_.prepare(BUF_SIZE),
@@ -248,14 +229,14 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
 
         prepare_timer(downstream_timer_, cfg_.send_timeout_ms);
         client_sock_.async_write(write_data,
-                                 [self = shared_from_this()](const boost::system::error_code &errc,
+                                 [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
                                                              std::size_t bytes_tf) {
                                      self->do_write_client(errc, bytes_tf);
                                  });
     } else {
         if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
             if (client_sock_.is_tls()) {
-                client_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
+                client_sock_.async_shutdown([self = shared_from_base<StreamSession>()]([[maybe_unused]] const auto &errc) {
                 });
             } else {
                 client_sock_.shutdown();
@@ -283,7 +264,7 @@ void StreamSession::do_write_client(const boost::system::error_code &errc, std::
 
 void StreamSession::do_downstream() {
     service_sock_->async_read_some(downstream_buf_.prepare(BUF_SIZE),
-                                   [self = shared_from_this()](const boost::system::error_code &errc,
+                                   [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
                                                                std::size_t bytes_tf) {
                                        self->do_read_service(errc, bytes_tf);
                                    });

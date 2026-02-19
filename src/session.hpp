@@ -1,12 +1,11 @@
 #pragma once
 #include "stream.hpp"
-
-
 #include <boost/asio/ip/tcp.hpp>
+#include "logger.hpp"
 
 class Stream;
 
-class Session {
+class Session : public std::enable_shared_from_this<Session> {
 public:
     Session(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx, bool is_client_tls)
         : client_sock_(ctx, ssl_srv_ctx, is_client_tls), upstream_timer_(ctx), downstream_timer_(ctx) {
@@ -15,6 +14,11 @@ public:
     virtual ~Session() {
         std::println("Session dead");
         close_ses();
+    }
+
+    template <typename Derived>
+    std::shared_ptr<Derived> shared_from_base() {
+        return std::static_pointer_cast<Derived>(shared_from_this());
     }
 
     Session(const Session &) = delete;
@@ -37,6 +41,27 @@ public:
         }
     }
 
+    void handle_timer(const boost::system::error_code& errc) {
+        if (!errc) {
+            // TODO: do something, just close session for now
+            std::println("expired: close session");
+            close_ses();
+        } else {
+            if (boost::asio::error::operation_aborted != errc) {
+                std::println("Timer failed: {}", errc.message());
+            }
+        }
+    }
+    void prepare_timer(boost::asio::steady_timer& timer, const std::size_t timeout_ms) {
+        timer.expires_after(std::chrono::milliseconds(timeout_ms));
+        timer.async_wait([weak = weak_from_this()](const boost::system::error_code &errc) {
+            if (auto self = weak.lock()) {
+                self->handle_timer(errc);
+            }
+        });
+    }
+
+
     Stream &get_client() {
         return client_sock_;
     }
@@ -53,4 +78,6 @@ protected:
     // these are client-oriented, since clients are presumed to be unreliable and services are fast and reliable
     boost::asio::steady_timer upstream_timer_; // Used to track reading from client
     boost::asio::steady_timer downstream_timer_; // Used to track writing to client
+
+    std::optional<Logger> logger_;
 };

@@ -10,7 +10,7 @@
 #include "selectors.hpp"
 #include "utils.hpp"
 
-class HttpSession : public Session, public std::enable_shared_from_this<HttpSession> {
+class HttpSession : public Session {
 private:
     template<bool isRequest, class Body>
     void process_headers(boost::beast::http::message<isRequest, Body> &msg) {
@@ -62,10 +62,6 @@ private:
 
     void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body>& msg);
 
-    void handle_timer(const boost::system::error_code& errc);
-
-    void prepare_timer(boost::asio::steady_timer& timer, const std::size_t timeout_ms);
-
     enum class State : std::uint8_t {
         HEADERS,
         BODY // Need to switch back to headers after whole body is written -> use Content-Length for this i suppose
@@ -92,7 +88,6 @@ private:
     boost::asio::steady_timer downstream_timer_;
 
     // Logging stuff
-    std::optional<Logger> logger_; // May not be used, if file_log is null
     std::optional<std::size_t> bytes_sent_{};
     std::optional<std::chrono::time_point<std::chrono::system_clock> > start_time_;
     std::optional<std::string> request_uri_;

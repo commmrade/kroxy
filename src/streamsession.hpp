@@ -8,7 +8,7 @@
 #include "selectors.hpp"
 #include "session.hpp"
 
-class StreamSession : public Session, public std::enable_shared_from_this<StreamSession> {
+class StreamSession : public Session {
 private:
     // client to service
     void do_read_client(const boost::system::error_code &errc, std::size_t bytes_tf);
@@ -42,8 +42,6 @@ private:
     void log();
 
     void handle_service();
-    void handle_timer(const boost::system::error_code& errc);
-    void prepare_timer(boost::asio::steady_timer& timer, const std::size_t timeout_ms);
 
     StreamConfig &cfg_;
 
@@ -52,7 +50,6 @@ private:
 
 
     // Logging stuff
-    std::optional<Logger> logger_;
     std::size_t bytes_sent_{};
     std::chrono::time_point<std::chrono::system_clock> start_time_;
 };
