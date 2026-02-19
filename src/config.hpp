@@ -28,7 +28,9 @@ struct UpstreamOptions {
 enum class LoadBalancingAlgo : std::uint8_t {
     ROUND_ROBIN,
     FIRST,
-    LEAST_CONN
+    LEAST_CONN,
+    HOST,
+    SNI,
 };
 
 struct Upstream {

@@ -3,6 +3,8 @@
 //
 
 #include "selectors.hpp"
+#include <print>
+#include <iostream>
 
 std::pair<Host, std::size_t> LeastConnectionSelector::select_host([[maybe_unused]] const BalancerData& data) {
     if (conns_.empty()) {
@@ -33,4 +35,22 @@ std::pair<Host, std::size_t> RoundRobinSelector::select_host([[maybe_unused]] co
     auto idx = cur_host_idx_;
     ++cur_host_idx_;
     return {host, idx};
+}
+
+std::pair<Host, std::size_t> HostBasedSelector::select_host([[maybe_unused]] const BalancerData& data) {
+    auto iter = std::ranges::find_if(hosts_->begin(), hosts_->end(), [&](const auto& host) { return host.host == data.header_host; });
+    if (iter == hosts_->end()) {
+        return {{}, 0}; // TODO: Handle this on Session side
+    }
+
+    return {*iter, std::distance(hosts_->begin(), iter)};
+}
+
+std::pair<Host, std::size_t> SNIBasedSelector::select_host([[maybe_unused]] const BalancerData& data) {
+    auto iter = std::ranges::find_if(hosts_->begin(), hosts_->end(), [&](const auto& host) { return host.host == data.tls_sni; });
+    if (iter == hosts_->end()) {
+        return {{}, 0};
+    }
+    std::println("SNI IS: {}", iter->host);
+    return {*iter, std::distance(hosts_->begin(), iter)};
 }

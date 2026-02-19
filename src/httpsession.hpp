@@ -60,7 +60,7 @@ private:
 
     void log();
 
-    void setup_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body>& msg);
+    void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body>& msg);
 
     enum class State : std::uint8_t {
         HEADERS,
