@@ -44,6 +44,8 @@ public:
     void handle_timer(const boost::system::error_code& errc) {
         if (!errc) {
             // TODO: do something, just close session for now
+            // And probably HTTPSession will handle timer in a different way whereas StreamSession will not.
+            // HTTPSession could send something like 408 - timed out
             std::println("expired: close session");
             close_ses();
         } else {
