@@ -8,14 +8,17 @@
 
 StreamSession::StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
                              bool is_client_tls)
-    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg), timer_(ctx) {
+    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg), upstream_timer_(ctx), downstream_timer_(ctx) {
     if (!cfg_.file_log.empty()) {
         logger_.emplace(cfg_.file_log);
     }
 
-    timer_.expires_at(boost::asio::steady_timer::time_point::max());
-    timer_.async_wait([this](const boost::system::error_code &errc) {
-        // FIXME: capturinjg this is probably not safe although the object is supposed to live long enough since it is used with async_... handlers, which use shared_from_this()
+    upstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
+    upstream_timer_.async_wait([this](const boost::system::error_code &errc) {
+        handle_timer(errc);
+    });
+    downstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
+    downstream_timer_.async_wait([this](const boost::system::error_code &errc) {
         handle_timer(errc);
     });
 }
@@ -169,7 +172,7 @@ void StreamSession::log() {
     }
 }
 
-void StreamSession::prepare_timer(const std::size_t timeout_ms) {
+void StreamSession::prepare_timer(boost::asio::steady_timer& timer_, const std::size_t timeout_ms) {
     timer_.expires_after(std::chrono::milliseconds(timeout_ms));
     timer_.async_wait([self = shared_from_this()](const boost::system::error_code &errc) {
         self->handle_timer(errc);
@@ -181,7 +184,6 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
         upstream_buf_.commit(bytes_tf);
         auto write_data = upstream_buf_.data();
 
-        prepare_timer(cfg_.send_timeout_ms);
         service_sock_->async_write(
             write_data, [self = shared_from_this()](const boost::system::error_code &errc,
                                                     std::size_t bytes_tf) {
@@ -225,7 +227,7 @@ void StreamSession::do_write_service(const boost::system::error_code &errc, std:
 void StreamSession::do_upstream() {
     auto self = shared_from_this();
 
-    prepare_timer(cfg_.read_timeout_ms);
+    prepare_timer(upstream_timer_, cfg_.read_timeout_ms);
     client_sock_.async_read_some(upstream_buf_.prepare(BUF_SIZE),
                                  [self](const boost::system::error_code &errc,
                                         std::size_t bytes) {
@@ -239,6 +241,7 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
         downstream_buf_.commit(bytes_tf);
         auto write_data = downstream_buf_.data();
 
+        prepare_timer(downstream_timer_, cfg_.send_timeout_ms);
         client_sock_.async_write(write_data,
                                  [self = shared_from_this()](const boost::system::error_code &errc,
                                                              std::size_t bytes_tf) {

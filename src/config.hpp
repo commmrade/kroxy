@@ -111,7 +111,7 @@ struct StreamConfig {
     std::string pass_to;
 
     std::size_t read_timeout_ms{}; // Read from client
-    std::size_t send_timeout_ms{}; // Send to server
+    std::size_t send_timeout_ms{}; // Send to client
     std::size_t connect_timeout_ms{};
     std::size_t resolve_timeout{};
 
@@ -141,7 +141,7 @@ struct HttpConfig {
 
     std::size_t clnt_header_timeout_ms{};
     std::size_t clnt_body_timeout_ms{};
-    std::size_t send_timeout_ms{};
+    std::size_t send_timeout_ms{}; // send to client
     std::size_t connect_timeout_ms{};
     std::size_t resolve_timeout_ms{};
 
