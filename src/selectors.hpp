@@ -39,7 +39,7 @@ public:
 
     virtual std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) = 0;
 
-    virtual void disconnect_host(std::size_t index) {
+    virtual void disconnect_host([[maybe_unused]] std::size_t index) {
         // This might not be used by every algorithm (Round-robin f.e), but it may be used by least connection algo
     }
 
@@ -67,7 +67,7 @@ class LeastConnectionSelector : public UpstreamSelector {
 public:
     std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) override;
 
-    void disconnect_host(std::size_t index) override;
+    void disconnect_host([[maybe_unused]] std::size_t index) override;
 
     std::size_t best_index();
 

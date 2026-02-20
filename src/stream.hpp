@@ -115,7 +115,10 @@ public:
     bool set_sni(const std::string_view hostname) {
         assert(is_tls());
         auto &ref = get_tls_stream();
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wold-style-cast"
         auto ret = SSL_set_tlsext_host_name(ref.native_handle(), hostname.data());
+        #pragma GCC diagnostic pop
         if (!ret) {
             std::print("SSL_set_tlsext_host_name failed");
             return false;

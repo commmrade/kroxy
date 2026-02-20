@@ -56,8 +56,8 @@ void Server::do_accept() {
                                if (!errc) {
                                    session->get_client().async_handshake(
                                        boost::asio::ssl::stream_base::server,
-                                       [session](const boost::system::error_code &errc) {
-                                           if (!errc) {
+                                       [session](const boost::system::error_code &errc2) {
+                                           if (!errc2) {
                                                session->run();
                                            }
                                        });
