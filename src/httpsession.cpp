@@ -113,7 +113,7 @@ void HttpSession::handle_service(
 
     session_idx_ = idx;
 
-    bool host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
+    bool const host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
 
     auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(client_sock_.socket().get_executor());
 
@@ -186,6 +186,7 @@ void HttpSession::handle_service(
                                                                                return;
                                                                            }
                                                                            // connected + (optional) TLS handshake done -> proceed
+                                                                           self->prepare_timer(self->upstream_timer_, self->cfg_.pass_send_timeout_ms);
                                                                            self->service_sock_->
                                                                                    async_write_header(
                                                                                        *self->request_s_,
@@ -204,6 +205,7 @@ void HttpSession::handle_service(
                                                                        });
                                                                } else {
                                                                    // plain TCP -> proceed
+                                                                   self->prepare_timer(self->upstream_timer_, self->cfg_.pass_send_timeout_ms);
                                                                    self->service_sock_->async_write_header(
                                                                        *self->request_s_,
                                                                        [self](
@@ -233,6 +235,7 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
         request_s_.emplace(msg);
 
         if (service_sock_) {
+            prepare_timer(upstream_timer_, cfg_.pass_send_timeout_ms);
             service_sock_->async_write_header(*request_s_,
                                               [self = shared_from_base<HttpSession>()](
                                           const boost::system::error_code &errc,
@@ -287,6 +290,7 @@ void HttpSession::do_read_client_body(const boost::system::error_code &errc, [[m
         request_p_->get().body().data = us_buf_.data();
         request_p_->get().body().more = !request_p_->is_done();
 
+        prepare_timer(upstream_timer_, cfg_.pass_send_timeout_ms);
         service_sock_->async_write_message(
             *request_s_,
             [self = shared_from_base<HttpSession>()](const boost::system::error_code &errc, std::size_t bytes_tf) {
@@ -461,6 +465,7 @@ void HttpSession::do_downstream() {
             response_p_.emplace();
             downstream_buf_.clear();
 
+            prepare_timer(downstream_timer_, cfg_.pass_read_timeout_ms);
             service_sock_->async_read_header(downstream_buf_,
                                              *response_p_,
                                              [self = shared_from_base<HttpSession>()](const boost::system::error_code &errc,
@@ -470,6 +475,7 @@ void HttpSession::do_downstream() {
             break;
         }
         case State::BODY: {
+            prepare_timer(downstream_timer_, cfg_.pass_read_timeout_ms);
             service_sock_->async_read_message(downstream_buf_,
                                               *response_p_,
                                               [self = shared_from_base<HttpSession>()](const boost::system::error_code &errc,
