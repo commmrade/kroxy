@@ -41,7 +41,7 @@ struct Upstream {
 };
 
 struct Servers {
-    std::unordered_map<std::string, Upstream > servers;
+    std::unordered_map<std::string, Upstream> servers;
 };
 
 struct LogFormat {
@@ -61,8 +61,8 @@ struct LogFormat {
         // Stream specific
         // ...
     };
-    static Variable string_to_variable(const std::string_view str)
-    {
+
+    static Variable string_to_variable(const std::string_view str) {
         if (str == "client_addr") {
             return Variable::CLIENT_ADDR;
         } else if (str == "bytes_sent") {
@@ -81,6 +81,7 @@ struct LogFormat {
             throw std::runtime_error("Invalid variable string: " + std::string(str));
         }
     }
+
     static std::string variable_to_string(const Variable var) {
         switch (var) {
             case Variable::CLIENT_ADDR:
@@ -197,12 +198,16 @@ static constexpr std::size_t TIMER_HANDLER_TIMEOUT = 10000;
 struct Config;
 
 std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format);
-inline HttpConfig parse_http(const Json::Value& http_obj);
-StreamConfig parse_stream(const Json::Value& stream_obj);
+
+inline HttpConfig parse_http(const Json::Value &http_obj);
+
+StreamConfig parse_stream(const Json::Value &stream_obj);
+
 Config parse_config(const std::filesystem::path &path);
 
 struct Config {
-    static Config& instance(const std::filesystem::path &path = "") { // This default value trick is kinda bad but at least it works
+    static Config &instance(const std::filesystem::path &path = "") {
+        // This default value trick is kinda bad but at least it works
         static Config config = parse_config(path);
         return config;
     }

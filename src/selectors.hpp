@@ -25,31 +25,31 @@ public:
 
     virtual ~UpstreamSelector() = default;
 
-    UpstreamSelector(const UpstreamSelector&) = delete;
+    UpstreamSelector(const UpstreamSelector &) = delete;
 
-    UpstreamSelector& operator=(const UpstreamSelector&) = delete;
+    UpstreamSelector &operator=(const UpstreamSelector &) = delete;
 
-    UpstreamSelector(UpstreamSelector&&) = delete;
+    UpstreamSelector(UpstreamSelector &&) = delete;
 
-    UpstreamSelector& operator=(UpstreamSelector&&) = delete;
+    UpstreamSelector &operator=(UpstreamSelector &&) = delete;
 
     void set_upstream(Upstream &serv) {
         hosts_ = &serv.hosts;
     }
 
-    virtual std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) = 0;
+    virtual std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) = 0;
 
     virtual void disconnect_host(std::size_t index) {
         // This might not be used by every algorithm (Round-robin f.e), but it may be used by least connection algo
     }
 
 protected:
-    std::vector<Host>* hosts_ = nullptr;
+    std::vector<Host> *hosts_ = nullptr;
 };
 
 class FirstSelector : public UpstreamSelector {
 public:
-    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) override {
+    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) override {
         return std::pair<Host, std::size_t>{*hosts_->begin(), 0};
     }
 };
@@ -65,30 +65,32 @@ struct std::hash<Host> {
 
 class LeastConnectionSelector : public UpstreamSelector {
 public:
-    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) override;
+    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) override;
 
     void disconnect_host(std::size_t index) override;
 
     std::size_t best_index();
+
 private:
     std::vector<unsigned int> conns_;
 };
 
 class RoundRobinSelector : public UpstreamSelector {
 public:
-    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) override;
+    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) override;
+
 private:
     unsigned int cur_host_idx_{0};
 };
 
 class HostBasedSelector : public UpstreamSelector {
 public:
-    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) override;
+    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) override;
 };
 
 class SNIBasedSelector : public UpstreamSelector {
 public:
-    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData& data) override;
+    std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) override;
 };
 
 #endif //KROXY_SELECTORS_HPP

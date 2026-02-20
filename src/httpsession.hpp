@@ -42,25 +42,28 @@ private:
     void do_downstream();
 
 public:
-    HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx, bool is_client_tls);
+    HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+                bool is_client_tls);
 
     HttpSession(const HttpSession &) = delete;
 
     HttpSession &operator=(const HttpSession &) = delete;
 
     ~HttpSession() override {
-        auto& cfg = Config::instance();
-        auto& upstream = cfg.get_upstream();
+        auto &cfg = Config::instance();
+        auto &upstream = cfg.get_upstream();
         upstream.load_balancer->disconnect_host(session_idx_);
     }
 
     void run() override;
+
 private:
     void check_log();
 
     void log();
 
-    void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body>& msg);
+    void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body> &msg);
+
     void handle_timer(const boost::system::error_code &errc, WaitState state) override;
 
     enum class State : std::uint8_t {

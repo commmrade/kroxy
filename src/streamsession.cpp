@@ -29,7 +29,7 @@ StreamSession::~StreamSession() {
     upstream.load_balancer->disconnect_host(session_idx_);
 }
 
-void StreamSession::handle_timer(const boost::system::error_code& errc, WaitState state) {
+void StreamSession::handle_timer(const boost::system::error_code &errc, WaitState state) {
     if (!errc) {
         std::println("Timed out: {}", static_cast<int>(state));
         close_ses(); // No other way to handle this
@@ -93,7 +93,8 @@ void StreamSession::handle_service() {
                                     return;
                                 }
 
-                                self->prepare_timer(self->upstream_timer_, WaitState::CONNECT, self->cfg_.connect_timeout_ms);
+                                self->prepare_timer(self->upstream_timer_, WaitState::CONNECT,
+                                                    self->cfg_.connect_timeout_ms);
                                 boost::asio::async_connect(self->service_sock_->socket(),
                                                            eps,
                                                            [self, host](const boost::system::error_code &errc,
@@ -181,7 +182,7 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
         prepare_timer(upstream_timer_, WaitState::PASS_SEND, cfg_.pass_send_timeout_ms);
         service_sock_->async_write(
             write_data, [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
-                                                    std::size_t bytes_tf) {
+                                                                   std::size_t bytes_tf) {
                 self->do_write_service(errc, bytes_tf);
             });
     } else {
@@ -192,8 +193,9 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
 
             // Calls either ssl::stream::async_shutdown or socket::shutdown
             if (service_sock_->is_tls()) {
-                service_sock_->async_shutdown([self = shared_from_base<StreamSession>()]([[maybe_unused]] const auto &errc) {
-                });
+                service_sock_->async_shutdown(
+                    [self = shared_from_base<StreamSession>()]([[maybe_unused]] const auto &errc) {
+                    });
             } else {
                 service_sock_->shutdown();
             }
@@ -239,14 +241,15 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
         prepare_timer(downstream_timer_, WaitState::SEND, cfg_.send_timeout_ms);
         client_sock_.async_write(write_data,
                                  [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
-                                                             std::size_t bytes_tf) {
+                                                                            std::size_t bytes_tf) {
                                      self->do_write_client(errc, bytes_tf);
                                  });
     } else {
         if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
             if (client_sock_.is_tls()) {
-                client_sock_.async_shutdown([self = shared_from_base<StreamSession>()]([[maybe_unused]] const auto &errc) {
-                });
+                client_sock_.async_shutdown(
+                    [self = shared_from_base<StreamSession>()]([[maybe_unused]] const auto &errc) {
+                    });
             } else {
                 client_sock_.shutdown();
             }
@@ -275,7 +278,7 @@ void StreamSession::do_downstream() {
     prepare_timer(downstream_timer_, WaitState::PASS_READ, cfg_.pass_read_timeout_ms);
     service_sock_->async_read_some(downstream_buf_.prepare(BUF_SIZE),
                                    [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
-                                                               std::size_t bytes_tf) {
+                                                                              std::size_t bytes_tf) {
                                        self->do_read_service(errc, bytes_tf);
                                    });
 }

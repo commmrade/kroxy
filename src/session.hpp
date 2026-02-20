@@ -16,7 +16,7 @@ public:
         close_ses();
     }
 
-    template <typename Derived>
+    template<typename Derived>
     std::shared_ptr<Derived> shared_from_base() {
         return std::static_pointer_cast<Derived>(shared_from_this());
     }
@@ -41,9 +41,9 @@ public:
         }
     }
 
-    virtual void handle_timer(const boost::system::error_code& errc, WaitState state) = 0;
+    virtual void handle_timer(const boost::system::error_code &errc, WaitState state) = 0;
 
-    void prepare_timer(boost::asio::steady_timer& timer, WaitState state, const std::size_t timeout_ms) {
+    void prepare_timer(boost::asio::steady_timer &timer, WaitState state, const std::size_t timeout_ms) {
         timer.expires_after(std::chrono::milliseconds(timeout_ms));
         timer.async_wait([weak = weak_from_this(), state](const boost::system::error_code &errc) {
             if (auto self = weak.lock()) {

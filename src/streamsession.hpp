@@ -24,8 +24,10 @@ private:
     void do_write_client(const boost::system::error_code &errc, std::size_t bytes_tf);
 
     void do_downstream();
+
 public:
-    explicit StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx, bool is_client_tls);
+    explicit StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+                           bool is_client_tls);
 
     StreamSession(const StreamSession &) = delete;
 
@@ -38,11 +40,13 @@ public:
     ~StreamSession() override;
 
     void run() override;
+
 private:
     void log();
 
     void handle_service();
-    void handle_timer(const boost::system::error_code& errc, WaitState state) override;
+
+    void handle_timer(const boost::system::error_code &errc, WaitState state) override;
 
     StreamConfig &cfg_;
 
