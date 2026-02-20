@@ -115,6 +115,9 @@ struct StreamConfig {
     std::size_t connect_timeout_ms{};
     std::size_t resolve_timeout{};
 
+    std::size_t pass_read_timeout_ms{};
+    std::size_t pass_send_timeout_ms{};
+
     // kroxy server tls stuff
     bool tls_enabled{};
     std::string tls_cert_path;
@@ -145,6 +148,9 @@ struct HttpConfig {
     std::size_t connect_timeout_ms{};
     std::size_t resolve_timeout_ms{};
 
+    std::size_t pass_read_timeout_ms{};
+    std::size_t pass_send_timeout_ms{};
+
     // kroxy server tls stuff
     bool tls_enabled{};
     std::string tls_cert_path;
@@ -172,6 +178,8 @@ static constexpr std::size_t DEFAULT_SEND_TIMEOUT = DEFAULT_TIMEOUT;
 static constexpr std::size_t DEFAULT_CONNECT_TIMEOUT = DEFAULT_TIMEOUT;
 static constexpr std::size_t DEFAULT_RESOLVE_TIMEOUT = DEFAULT_TIMEOUT;
 static constexpr std::size_t DEFAULT_READ_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_PASS_READ_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_PASS_SEND_TIMEOUT = DEFAULT_TIMEOUT;
 
 struct Config;
 

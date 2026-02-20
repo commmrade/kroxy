@@ -45,6 +45,9 @@ HttpConfig parse_http(const Json::Value &http_obj) {
     cfg.connect_timeout_ms = http_obj.get("connect_timeout", DEFAULT_CONNECT_TIMEOUT).asUInt64();
     cfg.resolve_timeout_ms = http_obj.get("resolve_timeout", DEFAULT_RESOLVE_TIMEOUT).asUInt64();
 
+    cfg.pass_read_timeout_ms = http_obj.get("pass_read_timeout", DEFAULT_PASS_READ_TIMEOUT).asUInt64();
+    cfg.pass_send_timeout_ms = http_obj.get("pass_send_timeout", DEFAULT_PASS_SEND_TIMEOUT).asUInt64();
+
     cfg.pass_to = http_obj.get("pass_to", "").asString();
     if (cfg.pass_to.empty()) {
         throw std::runtime_error("Pass_to is not defined");
@@ -178,6 +181,10 @@ StreamConfig parse_stream(const Json::Value &stream_obj) {
     cfg.send_timeout_ms = stream_obj.get("send_timeout", DEFAULT_SEND_TIMEOUT).asUInt64();
     cfg.connect_timeout_ms = stream_obj.get("connect_timeout", DEFAULT_CONNECT_TIMEOUT).asUInt64();
     cfg.resolve_timeout = stream_obj.get("resolve_timeout", DEFAULT_RESOLVE_TIMEOUT).asUInt64();
+
+    cfg.pass_read_timeout_ms = stream_obj.get("pass_read_timeout", DEFAULT_PASS_READ_TIMEOUT).asUInt64();
+    cfg.pass_send_timeout_ms = stream_obj.get("pass_send_timeout", DEFAULT_PASS_SEND_TIMEOUT).asUInt64();
+
 
     cfg.pass_to = stream_obj.get("pass_to", "").asString();
     if (cfg.pass_to.empty()) {
