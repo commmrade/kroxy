@@ -83,9 +83,6 @@ private:
     std::array<char, BUF_SIZE> ds_buf_{};
     State downstream_state_{};
 
-    // Timeout stuff
-    boost::asio::steady_timer upstream_timer_;
-    boost::asio::steady_timer downstream_timer_;
 
     // Logging stuff
     std::optional<std::size_t> bytes_sent_{};

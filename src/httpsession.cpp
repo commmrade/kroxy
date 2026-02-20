@@ -10,7 +10,7 @@ HttpSession::HttpSession(HttpConfig &cfg,
                          boost::asio::io_context &ctx,
                          boost::asio::ssl::context &ssl_srv_ctx,
                          bool is_client_tls)
-    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg), upstream_timer_(ctx), downstream_timer_(ctx) {
+    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg) {
     if (!cfg_.file_log.empty()) { logger_.emplace(cfg_.file_log); }
 
     upstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
