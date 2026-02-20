@@ -90,7 +90,9 @@ void HttpSession::handle_timer(const boost::system::error_code &errc, WaitState 
     if (!errc) {
         // We need to cancel all operations on these sockets to avoid writing to them when handling timers
         client_sock_.socket().cancel();
-        service_sock_->socket().cancel();
+        if (service_sock_) {
+            service_sock_->socket().cancel();
+        }
 
         switch (state) {
             case WaitState::CLIENT_HEADER:
