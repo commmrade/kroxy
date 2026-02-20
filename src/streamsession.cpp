@@ -50,7 +50,7 @@ void StreamSession::handle_service() {
     }
     session_idx_ = idx;
 
-    bool host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
+    bool const host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
 
     auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(client_sock_.socket().get_executor());
 
@@ -170,6 +170,7 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
         upstream_buf_.commit(bytes_tf);
         auto write_data = upstream_buf_.data();
 
+        prepare_timer(upstream_timer_, cfg_.pass_send_timeout_ms);
         service_sock_->async_write(
             write_data, [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
                                                     std::size_t bytes_tf) {
@@ -263,6 +264,7 @@ void StreamSession::do_write_client(const boost::system::error_code &errc, std::
 }
 
 void StreamSession::do_downstream() {
+    prepare_timer(downstream_timer_, cfg_.pass_read_timeout_ms);
     service_sock_->async_read_some(downstream_buf_.prepare(BUF_SIZE),
                                    [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
                                                                std::size_t bytes_tf) {
