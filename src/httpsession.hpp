@@ -61,6 +61,7 @@ private:
     void log();
 
     void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body>& msg);
+    void handle_timer(const boost::system::error_code &errc, WaitState state) override;
 
     enum class State : std::uint8_t {
         HEADERS,
@@ -82,7 +83,6 @@ private:
     boost::beast::flat_buffer downstream_buf_;
     std::array<char, BUF_SIZE> ds_buf_{};
     State downstream_state_{};
-
 
     // Logging stuff
     std::optional<std::size_t> bytes_sent_{};

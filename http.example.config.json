@@ -20,11 +20,11 @@
         ]
       },
       "fuck": {
-        "balancing_algo": "round_robin",
+        "balancing_algo": "first",
         "hosts": [
           {
             "host": "127.0.0.1",
-            "port": 9090
+            "port": 9999
           },
           {
             "host": "127.0.0.1",
@@ -105,13 +105,12 @@
     "file_log": "/dev/stdout",
     "format_log": "URI: $request_uri, method $request_method, status: $status, user agent: $http_user_agent, $bytes_sent haha",
 
-    "clnt_header_timeout": 2000,
-    "clnt_body_timeout": 2000,
-    "send_timeout": 2000,
+    "pass_read_timeout": 2000,
+    "pass_send_timeout": 2000,
 
     "connect_timeout": 60000,
     "resolve_timeout": 60000,
 
-    "pass_to": "httpbin"
+    "pass_to": "fuck"
   }
 }

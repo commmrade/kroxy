@@ -42,6 +42,7 @@ private:
     void log();
 
     void handle_service();
+    void handle_timer(const boost::system::error_code& errc, WaitState state) override;
 
     StreamConfig &cfg_;
 

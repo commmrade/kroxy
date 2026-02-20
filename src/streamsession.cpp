@@ -14,12 +14,10 @@ StreamSession::StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, bo
     }
 
     upstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
-    upstream_timer_.async_wait([this](const boost::system::error_code &errc) {
-        handle_timer(errc);
+    upstream_timer_.async_wait([](const boost::system::error_code &errc) {
     });
     downstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
-    downstream_timer_.async_wait([this](const boost::system::error_code &errc) {
-        handle_timer(errc);
+    downstream_timer_.async_wait([](const boost::system::error_code &errc) {
     });
 }
 
@@ -31,6 +29,16 @@ StreamSession::~StreamSession() {
     upstream.load_balancer->disconnect_host(session_idx_);
 }
 
+void StreamSession::handle_timer(const boost::system::error_code& errc, WaitState state) {
+    if (!errc) {
+        std::println("Timed out: {}", static_cast<int>(state));
+        close_ses(); // No other way to handle this
+    } else {
+        if (boost::asio::error::operation_aborted) {
+            std::println("Error handling timer: {}", errc.message());
+        }
+    }
+}
 
 void StreamSession::handle_service() {
     // Setting up data that balancers can use to route
@@ -73,7 +81,7 @@ void StreamSession::handle_service() {
     service_sock_ = std::make_unique<Stream>(ioc, std::move(service_ssl_ctx), host_is_tls);
 
     // resolve -> connect -> optional TLS handshake -> do_downstream() && do_upstream()
-    prepare_timer(upstream_timer_, cfg_.resolve_timeout);
+    prepare_timer(upstream_timer_, WaitState::RESOLVE, cfg_.resolve_timeout);
     resolver->async_resolve(host.host,
                             std::to_string(host.port),
                             [self = shared_from_base<StreamSession>(), resolver, host](
@@ -85,7 +93,7 @@ void StreamSession::handle_service() {
                                     return;
                                 }
 
-                                self->prepare_timer(self->upstream_timer_, self->cfg_.connect_timeout_ms);
+                                self->prepare_timer(self->upstream_timer_, WaitState::CONNECT, self->cfg_.connect_timeout_ms);
                                 boost::asio::async_connect(self->service_sock_->socket(),
                                                            eps,
                                                            [self, host](const boost::system::error_code &errc,
@@ -170,7 +178,7 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
         upstream_buf_.commit(bytes_tf);
         auto write_data = upstream_buf_.data();
 
-        prepare_timer(upstream_timer_, cfg_.pass_send_timeout_ms);
+        prepare_timer(upstream_timer_, WaitState::PASS_SEND, cfg_.pass_send_timeout_ms);
         service_sock_->async_write(
             write_data, [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
                                                     std::size_t bytes_tf) {
@@ -214,7 +222,7 @@ void StreamSession::do_write_service(const boost::system::error_code &errc, std:
 void StreamSession::do_upstream() {
     auto self = shared_from_base<StreamSession>();
 
-    prepare_timer(upstream_timer_, cfg_.read_timeout_ms);
+    prepare_timer(upstream_timer_, WaitState::READ, cfg_.read_timeout_ms);
     client_sock_.async_read_some(upstream_buf_.prepare(BUF_SIZE),
                                  [self](const boost::system::error_code &errc,
                                         std::size_t bytes) {
@@ -228,7 +236,7 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
         downstream_buf_.commit(bytes_tf);
         auto write_data = downstream_buf_.data();
 
-        prepare_timer(downstream_timer_, cfg_.send_timeout_ms);
+        prepare_timer(downstream_timer_, WaitState::SEND, cfg_.send_timeout_ms);
         client_sock_.async_write(write_data,
                                  [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
                                                              std::size_t bytes_tf) {
@@ -264,7 +272,7 @@ void StreamSession::do_write_client(const boost::system::error_code &errc, std::
 }
 
 void StreamSession::do_downstream() {
-    prepare_timer(downstream_timer_, cfg_.pass_read_timeout_ms);
+    prepare_timer(downstream_timer_, WaitState::PASS_READ, cfg_.pass_read_timeout_ms);
     service_sock_->async_read_some(downstream_buf_.prepare(BUF_SIZE),
                                    [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
                                                                std::size_t bytes_tf) {

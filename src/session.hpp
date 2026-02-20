@@ -41,24 +41,13 @@ public:
         }
     }
 
-    void handle_timer(const boost::system::error_code& errc) {
-        if (!errc) {
-            // TODO: do something, just close session for now
-            // And probably HTTPSession will handle timer in a different way whereas StreamSession will not.
-            // HTTPSession could send something like 408 - timed out
-            std::println("expired: close session");
-            close_ses();
-        } else {
-            if (boost::asio::error::operation_aborted != errc) {
-                std::println("Timer failed: {}", errc.message());
-            }
-        }
-    }
-    void prepare_timer(boost::asio::steady_timer& timer, const std::size_t timeout_ms) {
+    virtual void handle_timer(const boost::system::error_code& errc, WaitState state) = 0;
+
+    void prepare_timer(boost::asio::steady_timer& timer, WaitState state, const std::size_t timeout_ms) {
         timer.expires_after(std::chrono::milliseconds(timeout_ms));
-        timer.async_wait([weak = weak_from_this()](const boost::system::error_code &errc) {
+        timer.async_wait([weak = weak_from_this(), state](const boost::system::error_code &errc) {
             if (auto self = weak.lock()) {
-                self->handle_timer(errc);
+                self->handle_timer(errc, state);
             }
         });
     }
