@@ -169,6 +169,18 @@ struct HttpConfig {
     Servers servers;
 };
 
+enum class WaitState {
+    UNKNOWN,
+    CLIENT_HEADER,
+    CLIENT_BODY,
+    READ, // Client
+    SEND, // Client
+    CONNECT,
+    RESOLVE,
+    PASS_READ, // Service
+    PASS_SEND, // Service
+};
+
 static constexpr unsigned short DEFAULT_PORT = 8080;
 static constexpr std::size_t DEFAULT_TIMEOUT = 60000; // TODO: every default timeout
 
