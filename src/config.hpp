@@ -142,8 +142,8 @@ struct HttpConfig {
     std::unordered_map<std::string, std::string> headers;
     std::string pass_to;
 
-    std::size_t clnt_header_timeout_ms{};
-    std::size_t clnt_body_timeout_ms{};
+    std::size_t client_header_timeout_ms{};
+    std::size_t client_body_timeout_ms{};
     std::size_t send_timeout_ms{}; // send to client
     std::size_t connect_timeout_ms{};
     std::size_t resolve_timeout_ms{};
@@ -180,6 +180,7 @@ static constexpr std::size_t DEFAULT_RESOLVE_TIMEOUT = DEFAULT_TIMEOUT;
 static constexpr std::size_t DEFAULT_READ_TIMEOUT = DEFAULT_TIMEOUT;
 static constexpr std::size_t DEFAULT_PASS_READ_TIMEOUT = DEFAULT_TIMEOUT;
 static constexpr std::size_t DEFAULT_PASS_SEND_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t TIMER_HANDLER_TIMEOUT = 10000;
 
 struct Config;
 
