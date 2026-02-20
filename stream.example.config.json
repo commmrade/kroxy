@@ -37,12 +37,11 @@
           }
         ]
       },
-      "fuck_it": {
-        "pass_tls_enabled": false,
+      "fuck": {
         "hosts": [
           {
-            "host": "odnoklassniki.ru",
-            "port": 80
+            "host": "127.0.0.1",
+            "port": 9090
           }
         ]
       }
@@ -50,10 +49,10 @@
 
 
     "port": 8080,
-    "pass_to": "httpbin",
-    "tls_enabled": false,
-    "tls_cert_path": "../tls/certificate.crt",
-    "tls_key_path": "../tls/private.key",
+    "pass_to": "fuck",
+    "pass_read_timeout": 1000,
+    "read_timeout": 1000,
+
     "file_log": "/dev/stdout",
     "format_log": "Client address is $client_addr, $bytes_sent bytes have been sent, $processing_time"
   }
