@@ -1,6 +1,15 @@
 {
-  "servers": { "service": [{ "host": "127.0.0.1", "port": 9090 }] },
   "stream": {
+    "servers": {
+      "service": {
+        "hosts": [
+          {
+            "host": "127.0.0.1",
+            "port": 9090
+          }
+        ]
+      }
+    },
     "port": 8080,
     "timeout_ms": 500,
     "pass_to": "service"
