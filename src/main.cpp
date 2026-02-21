@@ -11,7 +11,7 @@
 #include "config.hpp"
 #include "server.hpp"
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     if (argc < 2) {
         throw std::runtime_error("Please, pass config path");
     }

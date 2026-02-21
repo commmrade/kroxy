@@ -45,7 +45,6 @@ std::shared_ptr<Session> Server::make_session() {
         return std::make_shared<StreamSession>(cfg, ctx_, ssl_ctx_, cfg_.is_tls_enabled());
     } else {
         auto &cfg = std::get<HttpConfig>(cfg_.server_config);
-
         return std::make_shared<HttpSession>(cfg, ctx_, ssl_ctx_, cfg_.is_tls_enabled());
     }
 }
@@ -57,8 +56,8 @@ void Server::do_accept() {
                                if (!errc) {
                                    session->get_client().async_handshake(
                                        boost::asio::ssl::stream_base::server,
-                                       [session](const boost::system::error_code &errc) {
-                                           if (!errc) {
+                                       [session](const boost::system::error_code &errc2) {
+                                           if (!errc2) {
                                                session->run();
                                            }
                                        });

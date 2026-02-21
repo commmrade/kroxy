@@ -10,7 +10,7 @@
 #include "selectors.hpp"
 #include "utils.hpp"
 
-class HttpSession : public Session, public std::enable_shared_from_this<HttpSession> {
+class HttpSession : public Session {
 private:
     template<bool isRequest, class Body>
     void process_headers(boost::beast::http::message<isRequest, Body> &msg) {
@@ -42,25 +42,29 @@ private:
     void do_downstream();
 
 public:
-    HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx, bool is_client_tls);
+    HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+                bool is_client_tls);
 
     HttpSession(const HttpSession &) = delete;
 
     HttpSession &operator=(const HttpSession &) = delete;
 
     ~HttpSession() override {
-        auto& cfg = Config::instance();
-        auto& upstream = cfg.get_upstream();
+        auto &cfg = Config::instance();
+        auto &upstream = cfg.get_upstream();
         upstream.load_balancer->disconnect_host(session_idx_);
     }
 
     void run() override;
+
 private:
     void check_log();
 
     void log();
 
-    void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body>& msg);
+    void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body> &msg);
+
+    void handle_timer(const boost::system::error_code &errc, WaitState state) override;
 
     enum class State : std::uint8_t {
         HEADERS,
@@ -84,7 +88,6 @@ private:
     State downstream_state_{};
 
     // Logging stuff
-    std::optional<Logger> logger_; // May not be used, if file_log is null
     std::optional<std::size_t> bytes_sent_{};
     std::optional<std::chrono::time_point<std::chrono::system_clock> > start_time_;
     std::optional<std::string> request_uri_;

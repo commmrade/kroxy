@@ -17,12 +17,16 @@
 class Server {
 private:
     void setup_socket(boost::asio::io_context &ctx, unsigned short port);
+
     std::shared_ptr<Session> make_session();
+
     void do_accept();
+
 public:
     Server(boost::asio::io_context &ctx);
 
     void run();
+
 private:
     boost::asio::io_context &ctx_;
     boost::asio::ip::tcp::acceptor acceptor_;

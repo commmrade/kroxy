@@ -12,6 +12,13 @@ HttpSession::HttpSession(HttpConfig &cfg,
                          bool is_client_tls)
     : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg) {
     if (!cfg_.file_log.empty()) { logger_.emplace(cfg_.file_log); }
+
+    upstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
+    upstream_timer_.async_wait([]([[maybe_unused]] const boost::system::error_code &errc) {
+    }); // do i need this?
+    downstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
+    downstream_timer_.async_wait([]([[maybe_unused]] const boost::system::error_code &errc) {
+    });
 }
 
 void HttpSession::run() {
@@ -78,9 +85,96 @@ void HttpSession::log() {
     }
 }
 
+
+void HttpSession::handle_timer(const boost::system::error_code &errc, WaitState state) {
+    if (!errc) {
+        // We need to cancel all operations on these sockets to avoid writing to them when handling timers
+        client_sock_.socket().cancel();
+        if (service_sock_) {
+            service_sock_->socket().cancel();
+        }
+
+        switch (state) {
+            case WaitState::CLIENT_HEADER:
+            case WaitState::CLIENT_BODY:
+            case WaitState::READ:
+            case WaitState::SEND: {
+                std::println("Timed out: waiting for client");
+
+                auto resp = std::make_shared<boost::beast::http::response<boost::beast::http::string_body> >();
+                resp->result(boost::beast::http::status::request_timeout);
+                resp->set(boost::beast::http::field::content_type, "text/html");
+                resp->set(boost::beast::http::field::connection, "close");
+                resp->body() =
+                        "<!DOCTYPE html>"
+                        "<html>"
+                        "<head><title>408 Request Timeout</title></head>"
+                        "<body>"
+                        "<h1>408 Request Timeout</h1>"
+                        "<p>The server timed out waiting for the request.</p>"
+                        "</body>"
+                        "</html>";
+                resp->prepare_payload();
+
+                auto resp_ser = std::make_shared<boost::beast::http::response_serializer<
+                    boost::beast::http::string_body> >(*resp);
+
+                prepare_timer(downstream_timer_, WaitState::UNKNOWN, TIMER_HANDLER_TIMEOUT);
+                // If even this times out it will just close the sockets in default branch
+                client_sock_.async_write_message(
+                    *resp_ser, [self = shared_from_base<HttpSession>(), resp, resp_ser](
+                [[maybe_unused]] const boost::system::error_code &errc2, [[maybe_unused]] std::size_t bytes_tf) {
+                        self->close_ses();
+                    });
+                break;
+            }
+            case WaitState::CONNECT:
+            case WaitState::RESOLVE:
+            case WaitState::PASS_READ:
+            case WaitState::PASS_SEND: {
+                std::println("Timed out: waiting for service");
+
+                auto resp = std::make_shared<boost::beast::http::response<boost::beast::http::string_body> >();
+                resp->result(boost::beast::http::status::gateway_timeout);
+                resp->set(boost::beast::http::field::content_type, "text/html");
+                resp->set(boost::beast::http::field::connection, "close");
+                resp->body() =
+                        "<!DOCTYPE html>"
+                        "<html>"
+                        "<head><title>504 Gateway Timeout</title></head>"
+                        "<body>"
+                        "<h1>504 Gateway Timeout</h1>"
+                        "<p>The server timed out waiting for the request.</p>"
+                        "</body>"
+                        "</html>";
+                resp->prepare_payload();
+
+                auto resp_ser = std::make_shared<boost::beast::http::response_serializer<
+                    boost::beast::http::string_body> >(*resp);
+                prepare_timer(downstream_timer_, WaitState::UNKNOWN, TIMER_HANDLER_TIMEOUT);
+                // If even this times out it will just close the sockets in default branch
+                client_sock_.async_write_message(
+                    *resp_ser, [self = shared_from_base<HttpSession>(), resp, resp_ser](
+                [[maybe_unused]] const boost::system::error_code &errc2, [[maybe_unused]] std::size_t bytes_tf) {
+                        self->close_ses();
+                    });
+                break;
+            }
+            default: {
+                std::println("Timed out for unknown reason: {}", static_cast<int>(state));
+                close_ses();
+                break;
+            }
+        }
+    } else {
+        if (boost::asio::error::operation_aborted != errc) {
+            std::println("Error handling timer: {}", errc.message());
+        }
+    }
+}
+
 void HttpSession::handle_service(
     [[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body> &msg) {
-
     // Data that balancers can use to route
     BalancerData data;
     if (client_sock_.is_tls()) {
@@ -97,7 +191,6 @@ void HttpSession::handle_service(
     auto &cfg = Config::instance();
     auto &upstream = cfg.get_upstream();
 
-    std::println("HOST IS: {}", data.tls_sni);
     auto [host, idx] = upstream.load_balancer->select_host(data);
     if (host.host.empty()) {
         std::println("Host is empty, dropping session");
@@ -106,7 +199,7 @@ void HttpSession::handle_service(
 
     session_idx_ = idx;
 
-    bool host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
+    bool const host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
 
     auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(client_sock_.socket().get_executor());
 
@@ -131,9 +224,10 @@ void HttpSession::handle_service(
     service_sock_ = std::make_unique<Stream>(ioc, std::move(service_ssl_ctx), host_is_tls);
 
     // resolve -> connect -> optional TLS handshake -> do_downstream()
+    prepare_timer(upstream_timer_, WaitState::RESOLVE, cfg_.resolve_timeout_ms);
     resolver->async_resolve(host.host,
                             std::to_string(host.port),
-                            [self = shared_from_this(), resolver, host](
+                            [self = shared_from_base<HttpSession>(), resolver, host](
                         const boost::system::error_code &errc,
                         const boost::asio::ip::tcp::resolver::results_type &eps) {
                                 if (errc) {
@@ -143,15 +237,17 @@ void HttpSession::handle_service(
                                 }
 
                                 // async_connect using the resolved endpoints
+                                self->prepare_timer(self->upstream_timer_, WaitState::CONNECT,
+                                                    self->cfg_.connect_timeout_ms);
                                 boost::asio::async_connect(self->service_sock_->socket(),
                                                            eps,
-                                                           [self, host](const boost::system::error_code &errc,
+                                                           [self, host](const boost::system::error_code &errc2,
                                                                         [[maybe_unused]] const
                                                                         boost::asio::ip::tcp::endpoint &endpoint) {
-                                                               if (errc) {
+                                                               if (errc2) {
                                                                    std::println(
                                                                        "Connecting to service failed: {}",
-                                                                       errc.message());
+                                                                       errc2.message());
                                                                    self->close_ses();
                                                                    return;
                                                                }
@@ -168,40 +264,47 @@ void HttpSession::handle_service(
                                                                    self->service_sock_->async_handshake(
                                                                        boost::asio::ssl::stream_base::client,
                                                                        [self](
-                                                                   const boost::system::error_code &errc) {
-                                                                           if (errc) {
+                                                                   const boost::system::error_code &errc3) {
+                                                                           if (errc3) {
                                                                                std::println(
                                                                                    "Service TLS handshake failed: {}",
-                                                                                   errc.message());
+                                                                                   errc3.message());
                                                                                self->close_ses();
                                                                                return;
                                                                            }
                                                                            // connected + (optional) TLS handshake done -> proceed
+                                                                           self->prepare_timer(
+                                                                               self->upstream_timer_,
+                                                                               WaitState::PASS_SEND,
+                                                                               self->cfg_.pass_send_timeout_ms);
                                                                            self->service_sock_->
                                                                                    async_write_header(
                                                                                        *self->request_s_,
                                                                                        [self](
                                                                                    const
                                                                                    boost::system::error_code &
-                                                                                   errc,
+                                                                                   errc4,
                                                                                    [[maybe_unused]] std::size_t
                                                                                    bytes_tf) {
                                                                                            self->
                                                                                                    do_write_service_header(
-                                                                                                       errc,
+                                                                                                       errc4,
                                                                                                        bytes_tf);
                                                                                        });
                                                                            self->do_downstream();
                                                                        });
                                                                } else {
                                                                    // plain TCP -> proceed
+                                                                   self->prepare_timer(
+                                                                       self->upstream_timer_, WaitState::PASS_SEND,
+                                                                       self->cfg_.pass_send_timeout_ms);
                                                                    self->service_sock_->async_write_header(
                                                                        *self->request_s_,
                                                                        [self](
-                                                                   const boost::system::error_code &errc,
+                                                                   const boost::system::error_code &errc3,
                                                                    [[maybe_unused]] std::size_t bytes_tf) {
                                                                            self->do_write_service_header(
-                                                                               errc, bytes_tf);
+                                                                               errc3, bytes_tf);
                                                                        });
                                                                    self->do_downstream();
                                                                }
@@ -224,11 +327,12 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
         request_s_.emplace(msg);
 
         if (service_sock_) {
+            prepare_timer(upstream_timer_, WaitState::PASS_SEND, cfg_.pass_send_timeout_ms);
             service_sock_->async_write_header(*request_s_,
-                                              [self = shared_from_this()](
-                                          const boost::system::error_code &errc,
-                                          [[maybe_unused]] std::size_t bytes_tf) {
-                                                  self->do_write_service_header(errc, bytes_tf);
+                                              [self = shared_from_base<HttpSession>()](
+                                          const boost::system::error_code &errc2,
+                                          [[maybe_unused]] std::size_t bytes_tf2) {
+                                                  self->do_write_service_header(errc2, bytes_tf2);
                                               });
         } else {
             handle_service(msg);
@@ -237,9 +341,10 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
         if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
             if (service_sock_ && service_sock_->is_tls()) {
                 // async_shutdown exists on Stream
-                service_sock_->async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
-                    // ignore shutdown errors
-                });
+                service_sock_->async_shutdown(
+                    [self = shared_from_base<HttpSession>()]([[maybe_unused]] const auto &errc2) {
+                        // ignore shutdown errors
+                    });
             } else if (service_sock_) {
                 // plain shutdown
                 service_sock_->shutdown();
@@ -278,16 +383,18 @@ void HttpSession::do_read_client_body(const boost::system::error_code &errc, [[m
         request_p_->get().body().data = us_buf_.data();
         request_p_->get().body().more = !request_p_->is_done();
 
+        prepare_timer(upstream_timer_, WaitState::PASS_SEND, cfg_.pass_send_timeout_ms);
         service_sock_->async_write_message(
             *request_s_,
-            [self = shared_from_this()](const boost::system::error_code &errc, std::size_t bytes_tf) {
-                self->do_write_service_body(errc, bytes_tf);
+            [self = shared_from_base<HttpSession>()](const boost::system::error_code &errc2, std::size_t bytes_tf2) {
+                self->do_write_service_body(errc2, bytes_tf2);
             });
     } else {
         if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
             if (service_sock_->is_tls()) {
-                service_sock_->async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
-                });
+                service_sock_->async_shutdown(
+                    [self = shared_from_base<HttpSession>()]([[maybe_unused]] const auto &errc2) {
+                    });
             } else {
                 service_sock_->shutdown();
             }
@@ -325,18 +432,22 @@ void HttpSession::do_upstream() {
             upstream_buf_.clear();
             start_time_.emplace(std::chrono::high_resolution_clock::now());
 
+            prepare_timer(upstream_timer_, WaitState::CLIENT_HEADER, cfg_.client_header_timeout_ms);
+            // TODO: FIX IT: Session waits for headers even if the previous request was Conn: close
             client_sock_.async_read_header(upstream_buf_,
                                            *request_p_,
-                                           [self = shared_from_this()](const boost::system::error_code &errc,
-                                                                             [[maybe_unused]] std::size_t bytes_tf) {
+                                           [self = shared_from_base<HttpSession>()](
+                                       const boost::system::error_code &errc,
+                                       [[maybe_unused]] std::size_t bytes_tf) {
                                                self->do_read_client_header(errc, bytes_tf);
                                            });
             break;
         }
         case State::BODY: {
+            prepare_timer(upstream_timer_, WaitState::CLIENT_BODY, cfg_.client_body_timeout_ms);
             client_sock_.async_read_message(upstream_buf_,
                                             *request_p_,
-                                            [self = shared_from_this()](
+                                            [self = shared_from_base<HttpSession>()](
                                         const boost::system::error_code &errc, std::size_t bytes_tf) {
                                                 self->do_read_client_body(errc, bytes_tf);
                                             });
@@ -355,16 +466,19 @@ void HttpSession::do_read_service_header(const boost::system::error_code &errc, 
         http_status_.emplace(static_cast<unsigned int>(msg.base().result()));
 
         response_s_.emplace(msg);
+
+        prepare_timer(downstream_timer_, WaitState::SEND, cfg_.send_timeout_ms);
         client_sock_.async_write_header(*response_s_,
-                                        [self = shared_from_this()](const boost::system::error_code &errc,
-                                                                          [[maybe_unused]] std::size_t bytes_tf) {
-                                            self->do_write_client_header(errc, bytes_tf);
+                                        [self = shared_from_base<HttpSession>()](const boost::system::error_code &errc2,
+                                    [[maybe_unused]] std::size_t bytes_tf2) {
+                                            self->do_write_client_header(errc2, bytes_tf2);
                                         });
     } else {
         if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
             if (client_sock_.is_tls()) {
-                client_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
-                });
+                client_sock_.async_shutdown(
+                    [self = shared_from_base<HttpSession>()]([[maybe_unused]] const auto &errc2) {
+                    });
             } else {
                 client_sock_.shutdown();
             }
@@ -401,16 +515,18 @@ void HttpSession::do_read_service_body(const boost::system::error_code &errc, [[
         response_p_->get().body().data = ds_buf_.data();
         response_p_->get().body().more = !response_p_->is_done();
 
+        prepare_timer(downstream_timer_, WaitState::SEND, cfg_.send_timeout_ms);
         client_sock_.async_write_message(
             *response_s_,
-            [self = shared_from_this()](const boost::system::error_code &errc, std::size_t bytes_tf) {
-                self->do_write_client_body(errc, bytes_tf);
+            [self = shared_from_base<HttpSession>()](const boost::system::error_code &errc2, std::size_t bytes_tf2) {
+                self->do_write_client_body(errc2, bytes_tf2);
             });
     } else {
         if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
             if (client_sock_.is_tls()) {
-                client_sock_.async_shutdown([self = shared_from_this()]([[maybe_unused]] const auto &errc) {
-                });
+                client_sock_.async_shutdown(
+                    [self = shared_from_base<HttpSession>()]([[maybe_unused]] const auto &errc2) {
+                    });
             } else {
                 client_sock_.shutdown();
             }
@@ -446,18 +562,22 @@ void HttpSession::do_downstream() {
             response_p_.emplace();
             downstream_buf_.clear();
 
+            prepare_timer(downstream_timer_, WaitState::PASS_READ, cfg_.pass_read_timeout_ms);
             service_sock_->async_read_header(downstream_buf_,
                                              *response_p_,
-                                             [self = shared_from_this()](const boost::system::error_code &errc,
-                                                                               [[maybe_unused]] std::size_t bytes_tf) {
+                                             [self = shared_from_base<HttpSession>()](
+                                         const boost::system::error_code &errc,
+                                         [[maybe_unused]] std::size_t bytes_tf) {
                                                  self->do_read_service_header(errc, bytes_tf);
                                              });
             break;
         }
         case State::BODY: {
+            prepare_timer(downstream_timer_, WaitState::PASS_READ, cfg_.pass_read_timeout_ms);
             service_sock_->async_read_message(downstream_buf_,
                                               *response_p_,
-                                              [self = shared_from_this()](const boost::system::error_code &errc,
+                                              [self = shared_from_base<HttpSession>()](
+                                          const boost::system::error_code &errc,
                                           [[maybe_unused]] std::size_t bytes_tf) {
                                                   self->do_read_service_body(errc, bytes_tf);
                                               });

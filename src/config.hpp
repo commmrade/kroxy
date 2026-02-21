@@ -41,7 +41,7 @@ struct Upstream {
 };
 
 struct Servers {
-    std::unordered_map<std::string, Upstream > servers;
+    std::unordered_map<std::string, Upstream> servers;
 };
 
 struct LogFormat {
@@ -61,8 +61,8 @@ struct LogFormat {
         // Stream specific
         // ...
     };
-    static Variable string_to_variable(const std::string_view str)
-    {
+
+    static Variable string_to_variable(const std::string_view str) {
         if (str == "client_addr") {
             return Variable::CLIENT_ADDR;
         } else if (str == "bytes_sent") {
@@ -81,6 +81,7 @@ struct LogFormat {
             throw std::runtime_error("Invalid variable string: " + std::string(str));
         }
     }
+
     static std::string variable_to_string(const Variable var) {
         switch (var) {
             case Variable::CLIENT_ADDR:
@@ -108,8 +109,15 @@ struct LogFormat {
 
 struct StreamConfig {
     unsigned short port{};
-    std::size_t timeout_ms{};
     std::string pass_to;
+
+    std::size_t read_timeout_ms{}; // Read from client
+    std::size_t send_timeout_ms{}; // Send to client
+    std::size_t connect_timeout_ms{};
+    std::size_t resolve_timeout{};
+
+    std::size_t pass_read_timeout_ms{};
+    std::size_t pass_send_timeout_ms{};
 
     // kroxy server tls stuff
     bool tls_enabled{};
@@ -133,8 +141,16 @@ struct StreamConfig {
 struct HttpConfig {
     unsigned short port{};
     std::unordered_map<std::string, std::string> headers;
-    std::size_t timeout_ms{};
     std::string pass_to;
+
+    std::size_t client_header_timeout_ms{};
+    std::size_t client_body_timeout_ms{};
+    std::size_t send_timeout_ms{}; // send to client
+    std::size_t connect_timeout_ms{};
+    std::size_t resolve_timeout_ms{};
+
+    std::size_t pass_read_timeout_ms{};
+    std::size_t pass_send_timeout_ms{};
 
     // kroxy server tls stuff
     bool tls_enabled{};
@@ -154,18 +170,44 @@ struct HttpConfig {
     Servers servers;
 };
 
+enum class WaitState {
+    UNKNOWN,
+    CLIENT_HEADER,
+    CLIENT_BODY,
+    READ, // Client
+    SEND, // Client
+    CONNECT,
+    RESOLVE,
+    PASS_READ, // Service
+    PASS_SEND, // Service
+};
+
 static constexpr unsigned short DEFAULT_PORT = 8080;
-static constexpr std::size_t DEFAULT_TIMEOUT = 1000;
+static constexpr std::size_t DEFAULT_TIMEOUT = 60000; // TODO: every default timeout
+
+static constexpr std::size_t DEFAULT_CLIENT_HEADER_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_CLIENT_BODY_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_SEND_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_CONNECT_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_RESOLVE_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_READ_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_PASS_READ_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_PASS_SEND_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t TIMER_HANDLER_TIMEOUT = 10000;
 
 struct Config;
 
 std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format);
-inline HttpConfig parse_http(const Json::Value& http_obj);
-StreamConfig parse_stream(const Json::Value& stream_obj);
+
+inline HttpConfig parse_http(const Json::Value &http_obj);
+
+StreamConfig parse_stream(const Json::Value &stream_obj);
+
 Config parse_config(const std::filesystem::path &path);
 
 struct Config {
-    static Config& instance(const std::filesystem::path &path = "") { // This default value trick is kinda bad but at least it works
+    static Config &instance(const std::filesystem::path &path = "") {
+        // This default value trick is kinda bad but at least it works
         static Config config = parse_config(path);
         return config;
     }

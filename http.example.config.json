@@ -20,7 +20,7 @@
         ]
       },
       "fuck": {
-        "balancing_algo": "round_robin",
+        "balancing_algo": "first",
         "hosts": [
           {
             "host": "127.0.0.1",
@@ -98,13 +98,20 @@
       "Host": "$host",
       "X-Real-IP": "$addr"
     },
-    "tls_enabled": true,
+    "tls_enabled": false,
     "tls_cert_path": "../tls/certificate.crt",
     "tls_key_path": "../tls/private.key",
     "tls_verify_client": false,
     "file_log": "/dev/stdout",
     "format_log": "URI: $request_uri, method $request_method, status: $status, user agent: $http_user_agent, $bytes_sent haha",
-    "timeout_ms": 5000,
-    "pass_to": "routing"
+
+    "pass_read_timeout": 1000,
+    "pass_send_timeout": 2000,
+    "client_header_timeout": 1000,
+
+    "connect_timeout": 60000,
+    "resolve_timeout": 60000,
+
+    "pass_to": "fuck"
   }
 }

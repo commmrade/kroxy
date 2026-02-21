@@ -76,19 +76,17 @@ public:
         }
     }
 
-    class initiate_async_handshake_empty
-    {
+    class initiate_async_handshake_empty {
     public:
         initiate_async_handshake_empty() = default;
-        template <typename HandshakeHandler>
-        void operator()(HandshakeHandler&& handler,
-            [[maybe_unused]] boost::asio::ssl::stream_base::handshake_type type) const
-        {
+
+        template<typename HandshakeHandler>
+        void operator()(HandshakeHandler &&handler,
+                        [[maybe_unused]] boost::asio::ssl::stream_base::handshake_type type) const {
             std::forward<HandshakeHandler>(handler)(boost::system::error_code{});
         }
 
     private:
-
     };
 
     template<typename CompletionToken>
@@ -97,7 +95,7 @@ public:
             stream_.async_handshake(type, std::forward<CompletionToken>(token));
         } else {
             return boost::asio::async_initiate<CompletionToken,
-              void (boost::system::error_code)>(
+                void (boost::system::error_code)>(
                 initiate_async_handshake_empty(), token, type);
         }
     }
@@ -117,7 +115,10 @@ public:
     bool set_sni(const std::string_view hostname) {
         assert(is_tls());
         auto &ref = get_tls_stream();
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wold-style-cast"
         auto ret = SSL_set_tlsext_host_name(ref.native_handle(), hostname.data());
+        #pragma GCC diagnostic pop
         if (!ret) {
             std::print("SSL_set_tlsext_host_name failed");
             return false;
@@ -127,7 +128,7 @@ public:
 
     std::string get_sni() {
         assert(is_tls());
-        const char* r = SSL_get_servername(get_tls_stream().native_handle(), TLSEXT_NAMETYPE_host_name);
+        const char *r = SSL_get_servername(get_tls_stream().native_handle(), TLSEXT_NAMETYPE_host_name);
         if (r) {
             return {r};
         } else {
@@ -146,22 +147,26 @@ public:
     }
 
     // Called when wrapping client socket, since there is only 1 Server SSL_CTX, it is passed as ref
-    Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx, bool is_tls) : is_tls_(is_tls), stream_{ctx, ssl_ctx} {}
+    Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_ctx, bool is_tls) : is_tls_(is_tls),
+        stream_{ctx, ssl_ctx} {
+    }
 
     // Called when wrapping a service sock, SSL_CTX is created for each service, therefore it is moved inside here
     Stream(boost::asio::io_context &ctx, boost::asio::ssl::context &&ssl_ctx, bool is_tls)
         : ssl_ctx_{std::move(ssl_ctx)}, is_tls_{is_tls},
-          stream_{ctx, ssl_ctx_.value()} {}
+          stream_{ctx, ssl_ctx_.value()} {
+    }
 
-    Stream(const Stream&) = delete;
+    Stream(const Stream &) = delete;
 
     Stream &operator=(const Stream &) = delete;
 
-    Stream(Stream&&) = delete;
+    Stream(Stream &&) = delete;
 
-    Stream& operator=(Stream&&) = delete;
+    Stream &operator=(Stream &&) = delete;
 
     ~Stream() = default;
+
 private:
     std::optional<boost::asio::ssl::context> ssl_ctx_;
     bool is_tls_{};

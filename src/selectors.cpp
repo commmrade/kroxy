@@ -6,7 +6,7 @@
 #include <print>
 #include <iostream>
 
-std::pair<Host, std::size_t> LeastConnectionSelector::select_host([[maybe_unused]] const BalancerData& data) {
+std::pair<Host, std::size_t> LeastConnectionSelector::select_host([[maybe_unused]] const BalancerData &data) {
     if (conns_.empty()) {
         conns_.resize(hosts_->size(), 0);
     }
@@ -27,7 +27,7 @@ std::size_t LeastConnectionSelector::best_index() {
 }
 
 
-std::pair<Host, std::size_t> RoundRobinSelector::select_host([[maybe_unused]] const BalancerData& data) {
+std::pair<Host, std::size_t> RoundRobinSelector::select_host([[maybe_unused]] const BalancerData &data) {
     if (cur_host_idx_ >= hosts_->size()) {
         cur_host_idx_ = 0;
     }
@@ -37,8 +37,9 @@ std::pair<Host, std::size_t> RoundRobinSelector::select_host([[maybe_unused]] co
     return {host, idx};
 }
 
-std::pair<Host, std::size_t> HostBasedSelector::select_host([[maybe_unused]] const BalancerData& data) {
-    auto iter = std::ranges::find_if(hosts_->begin(), hosts_->end(), [&](const auto& host) { return host.host == data.header_host; });
+std::pair<Host, std::size_t> HostBasedSelector::select_host([[maybe_unused]] const BalancerData &data) {
+    auto iter = std::ranges::find_if(hosts_->begin(), hosts_->end(),
+                                     [&](const auto &host) { return host.host == data.header_host; });
     if (iter == hosts_->end()) {
         return {{}, 0}; // TODO: Handle this on Session side
     }
@@ -46,8 +47,9 @@ std::pair<Host, std::size_t> HostBasedSelector::select_host([[maybe_unused]] con
     return {*iter, std::distance(hosts_->begin(), iter)};
 }
 
-std::pair<Host, std::size_t> SNIBasedSelector::select_host([[maybe_unused]] const BalancerData& data) {
-    auto iter = std::ranges::find_if(hosts_->begin(), hosts_->end(), [&](const auto& host) { return host.host == data.tls_sni; });
+std::pair<Host, std::size_t> SNIBasedSelector::select_host([[maybe_unused]] const BalancerData &data) {
+    auto iter = std::ranges::find_if(hosts_->begin(), hosts_->end(),
+                                     [&](const auto &host) { return host.host == data.tls_sni; });
     if (iter == hosts_->end()) {
         return {{}, 0};
     }
