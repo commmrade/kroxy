@@ -2,6 +2,7 @@
 #include "stream.hpp"
 #include <boost/asio/ip/tcp.hpp>
 #include "logger.hpp"
+#include "selectors.hpp"
 
 class Stream;
 
@@ -12,8 +13,13 @@ public:
     }
 
     virtual ~Session() {
-        std::println("Session dead");
         close_ses();
+
+        if (session_idx_.has_value()) {
+            auto &cfg = Config::instance();
+            auto &upstream = cfg.get_upstream();
+            upstream.load_balancer->disconnect_host(session_idx_.value());
+        }
     }
 
     template<typename Derived>
@@ -64,7 +70,7 @@ public:
 protected:
     Stream client_sock_;
     std::unique_ptr<Stream> service_sock_;
-    std::size_t session_idx_{};
+    std::optional<std::size_t> session_idx_{};
 
     // these are client-oriented, since clients are presumed to be unreliable and services are fast and reliable
     boost::asio::steady_timer upstream_timer_; // Used to track reading from client

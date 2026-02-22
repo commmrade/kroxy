@@ -12,13 +12,6 @@ HttpSession::HttpSession(HttpConfig &cfg,
                          bool is_client_tls)
     : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg) {
     if (!cfg_.file_log.empty()) { logger_.emplace(cfg_.file_log); }
-
-    upstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
-    upstream_timer_.async_wait([]([[maybe_unused]] const boost::system::error_code &errc) {
-    }); // do i need this?
-    downstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
-    downstream_timer_.async_wait([]([[maybe_unused]] const boost::system::error_code &errc) {
-    });
 }
 
 void HttpSession::run() {

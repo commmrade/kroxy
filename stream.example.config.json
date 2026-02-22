@@ -49,9 +49,9 @@
 
 
     "port": 8080,
-    "pass_to": "fuck",
+    "pass_to": "google",
     "pass_read_timeout": 1000,
-    "read_timeout": 1000,
+    "read_timeout": 2000,
 
     "file_log": "/dev/stdout",
     "format_log": "Client address is $client_addr, $bytes_sent bytes have been sent, $processing_time"

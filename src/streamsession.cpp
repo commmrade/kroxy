@@ -12,21 +12,10 @@ StreamSession::StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, bo
     if (!cfg_.file_log.empty()) {
         logger_.emplace(cfg_.file_log);
     }
-
-    upstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
-    upstream_timer_.async_wait([]([[maybe_unused]] const boost::system::error_code &errc) {
-    }); // DO i need this??
-    downstream_timer_.expires_at(boost::asio::steady_timer::time_point::max());
-    downstream_timer_.async_wait([]([[maybe_unused]] const boost::system::error_code &errc) {
-    });
 }
 
 StreamSession::~StreamSession() {
     log();
-
-    auto &cfg = Config::instance();
-    auto &upstream = cfg.get_upstream();
-    upstream.load_balancer->disconnect_host(session_idx_);
 }
 
 void StreamSession::handle_timer(const boost::system::error_code &errc, WaitState state) {
