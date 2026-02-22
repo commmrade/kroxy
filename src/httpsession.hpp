@@ -42,7 +42,7 @@ private:
     void do_downstream();
 
 public:
-    HttpSession(HttpConfig &cfg, boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx,
+    HttpSession(boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx,
                 bool is_client_tls);
 
     HttpSession(const HttpSession &) = delete;

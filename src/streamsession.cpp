@@ -6,9 +6,9 @@
 #include "selectors.hpp"
 #include "utils.hpp"
 
-StreamSession::StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx,
+StreamSession::StreamSession(boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx,
                              bool is_client_tls)
-    : Session(ctx, std::move(ssl_srv_ctx), is_client_tls), cfg_(cfg) {
+    : Session(ctx, std::move(ssl_srv_ctx), is_client_tls), cfg_(std::get<StreamConfig>(Config::instance("").server_config)) {
     if (!cfg_.file_log.empty()) {
         logger_.emplace(cfg_.file_log);
     }
@@ -39,6 +39,8 @@ void StreamSession::handle_service() {
 
     // Setting up service socket
     auto &cfg = Config::instance();
+    const auto& cfg_ = std::get<StreamConfig>(cfg.server_config);
+
     auto &upstream = cfg.get_upstream();
     auto [host, idx] = upstream.load_balancer->select_host(data);
     if (host.host.empty()) {

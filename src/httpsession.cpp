@@ -6,11 +6,10 @@
 
 #include "selectors.hpp"
 
-HttpSession::HttpSession(HttpConfig &cfg,
-                         boost::asio::io_context &ctx,
+HttpSession::HttpSession(boost::asio::io_context &ctx,
                          std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx,
                          bool is_client_tls)
-    : Session(ctx, std::move(ssl_srv_ctx), is_client_tls), cfg_(cfg) {
+    : Session(ctx, std::move(ssl_srv_ctx), is_client_tls), cfg_(std::get<HttpConfig>(Config::instance("").server_config)) {
     if (!cfg_.file_log.empty()) { logger_.emplace(cfg_.file_log); }
 }
 

@@ -148,8 +148,8 @@ public:
         return stream_;
     }
 
-    Stream(boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_ctx, bool is_tls) : is_tls_(is_tls),
-        stream_{ctx, *ssl_ctx} {
+    Stream(boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_ctx, bool is_tls) : ssl_ctx_(std::move(ssl_ctx)), is_tls_(is_tls),
+        stream_{ctx, *ssl_ctx_} {
     }
 
     Stream(const Stream &) = delete;
