@@ -31,12 +31,10 @@ std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format)
     return result;
 }
 
-CommonConfig parse_common(const Json::Value& serv_obj) {
+void parse_common(CommonConfig& cfg, const Json::Value& serv_obj) {
     if (serv_obj.empty()) {
         throw std::runtime_error("Empty server object");
     }
-
-    CommonConfig cfg;
 
     cfg.port = static_cast<unsigned short>(serv_obj.get("port", DEFAULT_PORT).asInt());
     cfg.pass_to = serv_obj.get("pass_to", "").asString();
@@ -158,7 +156,6 @@ CommonConfig parse_common(const Json::Value& serv_obj) {
     } else {
         throw std::runtime_error("Servers block is empty");
     }
-    return cfg;
 }
 
 HttpConfig parse_http(const Json::Value &http_obj) {
@@ -166,7 +163,9 @@ HttpConfig parse_http(const Json::Value &http_obj) {
         throw std::runtime_error("Http is empty");
     }
 
-    HttpConfig cfg{parse_common(http_obj)};
+    HttpConfig cfg;
+    parse_common(cfg, http_obj);
+
     cfg.client_header_timeout_ms = http_obj.get("client_header_timeout", DEFAULT_CLIENT_HEADER_TIMEOUT).asUInt64();
     cfg.client_body_timeout_ms = http_obj.get("client_body_timeout", DEFAULT_CLIENT_BODY_TIMEOUT).asUInt64();
 
@@ -184,7 +183,9 @@ StreamConfig parse_stream(const Json::Value &stream_obj) {
     if (stream_obj.empty()) {
         throw std::runtime_error("Stream is empty");
     }
-    StreamConfig cfg{parse_common(stream_obj)};
+    StreamConfig cfg{};
+    parse_common(cfg, stream_obj);
+
     cfg.read_timeout_ms = stream_obj.get("read_timeout", DEFAULT_READ_TIMEOUT).asUInt64();
     return cfg;
 }

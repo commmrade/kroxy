@@ -138,17 +138,11 @@ struct CommonConfig {
 };
 
 struct StreamConfig : CommonConfig {
-    StreamConfig() = default;
-    explicit StreamConfig(CommonConfig&& cfg) : CommonConfig(std::move(cfg)) {}
-
     std::size_t read_timeout_ms{}; // Read from client
 };
 
 // Right now these two are similar, but what if other fields are added. That's why they are in a std::variant<...>
 struct HttpConfig : CommonConfig {
-    HttpConfig() = default;
-    explicit HttpConfig(CommonConfig&& cfg) : CommonConfig(std::move(cfg)) {}
-
     std::unordered_map<std::string, std::string> headers;
 
     std::size_t client_header_timeout_ms{};
@@ -184,8 +178,8 @@ struct Config;
 
 std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format);
 
-inline HttpConfig parse_http(const Json::Value &http_obj);
-
+HttpConfig parse_http(const Json::Value &http_obj);
+void parse_common(CommonConfig& cfg, const Json::Value& serv_obj);
 StreamConfig parse_stream(const Json::Value &stream_obj);
 
 Config parse_config(const std::filesystem::path &path);
