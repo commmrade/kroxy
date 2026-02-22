@@ -12,5 +12,10 @@ void replace_variable(std::string &log_msg, LogFormat::Variable var, const std::
 }
 
 void Logger::write(std::string_view msg) {
-    m_file << msg << '\n';
+    std::string final_msg;
+    final_msg.reserve(msg.size() + 1);
+    final_msg += msg;
+    final_msg += '\n';
+
+    m_file.write(final_msg.data(), static_cast<std::streamsize>(final_msg.size()));
 }

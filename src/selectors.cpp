@@ -17,6 +17,7 @@ std::pair<Host, std::size_t> LeastConnectionSelector::select_host([[maybe_unused
 }
 
 void LeastConnectionSelector::disconnect_host(std::size_t index) {
+    assert(conns_[index] != 0);
     --conns_[index];
 }
 

@@ -13,7 +13,7 @@
 
 class Logger {
 public:
-    explicit Logger(const std::filesystem::path &path) : m_file(path) {
+    explicit Logger(const std::filesystem::path &path) : m_file(path, std::ios_base::app) {
         if (!m_file.is_open()) { throw std::runtime_error("Can't open file"); }
     }
 
