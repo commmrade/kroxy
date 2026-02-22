@@ -8,8 +8,8 @@ class Stream;
 
 class Session : public std::enable_shared_from_this<Session> {
 public:
-    Session(boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx, bool is_client_tls)
-        : client_sock_(ctx, ssl_srv_ctx, is_client_tls), upstream_timer_(ctx), downstream_timer_(ctx) {
+    Session(boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx, bool is_client_tls)
+        : client_sock_(ctx, std::move(ssl_srv_ctx), is_client_tls), upstream_timer_(ctx), downstream_timer_(ctx) {
     }
 
     virtual ~Session() {

@@ -6,9 +6,9 @@
 #include "selectors.hpp"
 #include "utils.hpp"
 
-StreamSession::StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+StreamSession::StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx,
                              bool is_client_tls)
-    : Session(ctx, ssl_srv_ctx, is_client_tls), cfg_(cfg) {
+    : Session(ctx, std::move(ssl_srv_ctx), is_client_tls), cfg_(cfg) {
     if (!cfg_.file_log.empty()) {
         logger_.emplace(cfg_.file_log);
     }
@@ -54,16 +54,16 @@ void StreamSession::handle_service() {
     auto &exec = client_sock_.socket().get_executor();
     auto &ioc = static_cast<boost::asio::io_context &>(exec.context());
 
-    boost::asio::ssl::context service_ssl_ctx(boost::asio::ssl::context::tls_client);
-    service_ssl_ctx.set_default_verify_paths();
+    auto service_ssl_ctx = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_client);
+    service_ssl_ctx->set_default_verify_paths();
     if (upstream.options.pass_tls_verify.value_or(cfg_.pass_tls_verify)) {
-        service_ssl_ctx.set_verify_mode(boost::asio::ssl::verify_peer);
+        service_ssl_ctx->set_verify_mode(boost::asio::ssl::verify_peer);
     }
     if ((upstream.options.pass_tls_cert_path.has_value() && upstream.options.pass_tls_key_path.has_value()) || (
             !cfg_.pass_tls_cert_path.empty() && !cfg_.pass_tls_key_path.empty())) {
-        service_ssl_ctx.use_certificate_chain_file(
+        service_ssl_ctx->use_certificate_chain_file(
             upstream.options.pass_tls_cert_path.value_or(cfg_.pass_tls_cert_path));
-        service_ssl_ctx.use_private_key_file(
+        service_ssl_ctx->use_private_key_file(
             upstream.options.pass_tls_key_path.value_or(cfg_.pass_tls_key_path),
             boost::asio::ssl::context::file_format::pem);
     }

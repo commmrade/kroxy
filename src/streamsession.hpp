@@ -26,7 +26,7 @@ private:
     void do_downstream();
 
 public:
-    explicit StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, boost::asio::ssl::context &ssl_srv_ctx,
+    explicit StreamSession(StreamConfig &cfg, boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx,
                            bool is_client_tls);
 
     StreamSession(const StreamSession &) = delete;

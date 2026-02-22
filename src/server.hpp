@@ -30,7 +30,7 @@ public:
 private:
     boost::asio::io_context &ctx_;
     boost::asio::ip::tcp::acceptor acceptor_;
-    boost::asio::ssl::context ssl_ctx_{boost::asio::ssl::context::tls_server};
+    std::shared_ptr<boost::asio::ssl::context> ssl_ctx_{};
 };
 
 #endif //KROXY_SERVER_HPP

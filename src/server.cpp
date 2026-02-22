@@ -10,13 +10,14 @@ Server::Server(boost::asio::io_context &ctx) : ctx_(ctx), acceptor_(ctx) {
     setup_socket(ctx, port);
 
     if (cfg_.is_tls_enabled()) {
-        ssl_ctx_.use_certificate_chain_file(cfg_.get_tls_cert_path());
-        ssl_ctx_.use_private_key_file(cfg_.get_tls_key_path(), boost::asio::ssl::context_base::file_format::pem);
+        ssl_ctx_ = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_server);
+        ssl_ctx_->use_certificate_chain_file(cfg_.get_tls_cert_path());
+        ssl_ctx_->use_private_key_file(cfg_.get_tls_key_path(), boost::asio::ssl::context_base::file_format::pem);
         if (cfg_.get_tls_verify_client()) {
-            ssl_ctx_.set_verify_mode(boost::asio::ssl::verify_peer);
-            ssl_ctx_.set_default_verify_paths();
+            ssl_ctx_->set_verify_mode(boost::asio::ssl::verify_peer);
+            ssl_ctx_->set_default_verify_paths();
         }
-        ssl_ctx_.set_options(
+        ssl_ctx_->set_options(
             boost::asio::ssl::context::default_workarounds
             | boost::asio::ssl::context::no_sslv2
             | boost::asio::ssl::context::single_dh_use);
