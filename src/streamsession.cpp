@@ -70,7 +70,7 @@ void StreamSession::handle_service() {
     service_sock_ = std::make_unique<Stream>(ioc, std::move(service_ssl_ctx), host_is_tls);
 
     // resolve -> connect -> optional TLS handshake -> do_downstream() && do_upstream()
-    prepare_timer(upstream_timer_, WaitState::RESOLVE, cfg_.resolve_timeout);
+    prepare_timer(upstream_timer_, WaitState::RESOLVE, cfg_.resolve_timeout_ms);
     resolver->async_resolve(host.host,
                             std::to_string(host.port),
                             [self = shared_from_base<StreamSession>(), resolver, host](

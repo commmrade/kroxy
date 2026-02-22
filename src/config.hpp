@@ -107,25 +107,25 @@ struct LogFormat {
     std::unordered_set<Variable> used_vars;
 };
 
-struct StreamConfig {
+struct CommonConfig {
     unsigned short port{};
     std::string pass_to;
 
-    std::size_t read_timeout_ms{}; // Read from client
+    // Timers stuff
     std::size_t send_timeout_ms{}; // Send to client
     std::size_t connect_timeout_ms{};
-    std::size_t resolve_timeout{};
+    std::size_t resolve_timeout_ms{};
 
     std::size_t pass_read_timeout_ms{};
     std::size_t pass_send_timeout_ms{};
 
-    // kroxy server tls stuff
+    // tls server stuff
     bool tls_enabled{};
     std::string tls_cert_path;
     std::string tls_key_path;
     bool tls_verify_client{};
 
-    // kroxy as client tls stuff
+    // tls client stuff
     bool pass_tls_enabled{};
     std::string pass_tls_cert_path;
     std::string pass_tls_key_path;
@@ -137,37 +137,22 @@ struct StreamConfig {
     Servers servers;
 };
 
+struct StreamConfig : CommonConfig {
+    StreamConfig() = default;
+    explicit StreamConfig(CommonConfig&& cfg) : CommonConfig(std::move(cfg)) {}
+
+    std::size_t read_timeout_ms{}; // Read from client
+};
+
 // Right now these two are similar, but what if other fields are added. That's why they are in a std::variant<...>
-struct HttpConfig {
-    unsigned short port{};
+struct HttpConfig : CommonConfig {
+    HttpConfig() = default;
+    explicit HttpConfig(CommonConfig&& cfg) : CommonConfig(std::move(cfg)) {}
+
     std::unordered_map<std::string, std::string> headers;
-    std::string pass_to;
 
     std::size_t client_header_timeout_ms{};
     std::size_t client_body_timeout_ms{};
-    std::size_t send_timeout_ms{}; // send to client
-    std::size_t connect_timeout_ms{};
-    std::size_t resolve_timeout_ms{};
-
-    std::size_t pass_read_timeout_ms{};
-    std::size_t pass_send_timeout_ms{};
-
-    // kroxy server tls stuff
-    bool tls_enabled{};
-    std::string tls_cert_path;
-    std::string tls_key_path;
-    bool tls_verify_client{};
-
-    // kroxy as client tls stuff
-    bool pass_tls_enabled{};
-    std::string pass_tls_cert_path;
-    std::string pass_tls_key_path;
-    bool pass_tls_verify{};
-
-    std::string file_log;
-    LogFormat format_log;
-
-    Servers servers;
 };
 
 enum class WaitState {
@@ -232,4 +217,6 @@ struct Config {
     std::string get_tls_key_path() const;
 
     bool get_tls_verify_client() const;
+
+    bool contains_pass_to() const;
 };
