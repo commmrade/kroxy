@@ -108,7 +108,7 @@
 
     "pass_read_timeout": 1000,
     "pass_send_timeout": 2000,
-    "client_header_timeout": 3000,
+    "client_header_timeout": 5000,
 
     "connect_timeout": 60000,
     "resolve_timeout": 60000,

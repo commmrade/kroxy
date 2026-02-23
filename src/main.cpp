@@ -133,10 +133,7 @@ int main(int argc, char **argv) {
                             should_respawn = true;
                         }
                     } else if (child_info.si_code == CLD_KILLED || child_info.si_code == CLD_DUMPED) {
-                        int sig = child_info.si_status;
-                        if (sig == SIGSEGV || sig == SIGBUS || sig == SIGILL || sig == SIGFPE || sig == SIGABRT) {
-                            should_respawn = true;
-                        }
+                        should_respawn = true;
                     }
                     if (should_respawn) {
                         pid_t worker_pid = spawn_worker(ctx, server, master);
