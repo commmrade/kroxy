@@ -109,6 +109,7 @@ struct LogFormat {
 
 struct CommonConfig {
     unsigned short port{};
+    std::size_t workers_num{};
     std::string pass_to;
 
     // Timers stuff
@@ -162,6 +163,7 @@ enum class WaitState {
 };
 
 static constexpr unsigned short DEFAULT_PORT = 8080;
+static constexpr std::size_t DEFAULT_WORKERS_NUM = 1;
 static constexpr std::size_t DEFAULT_TIMEOUT = 60000; // TODO: every default timeout
 
 static constexpr std::size_t DEFAULT_CLIENT_HEADER_TIMEOUT = DEFAULT_TIMEOUT;
@@ -213,4 +215,6 @@ struct Config {
     bool get_tls_verify_client() const;
 
     bool contains_pass_to() const;
+
+    std::size_t workers_num() const;
 };

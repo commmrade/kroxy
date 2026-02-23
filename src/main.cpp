@@ -32,13 +32,14 @@ static void sig_handler(int sig_n) {
     signal_n = sig_n;
 };
 
-static pid_t spawn_worker(boost::asio::io_context& ctx, Server& server, Master& master) {
+static pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &master) {
     ctx.notify_fork(boost::asio::execution_context::fork_prepare);
     pid_t const result = fork();
     if (result == -1) {
         throw std::runtime_error("Starting a worker failed");
     }
-    if (result == 0) { // Child
+    if (result == 0) {
+        // Child
         struct sigaction action{};
         action.sa_handler = SIG_DFL;
         int res = sigaction(SIGINT, &action, nullptr);
@@ -55,16 +56,17 @@ static pid_t spawn_worker(boost::asio::io_context& ctx, Server& server, Master& 
         server.run();
         ctx.run(); // Child stays at this point while processing requests
         exit(EXIT_SUCCESS);
-    } else { // Parent
+    } else {
+        // Parent
         ctx.notify_fork(boost::asio::execution_context::fork_parent);
         master.workers.emplace_back(result, -1, 0);
         return result;
     }
 }
 
-static void clean_workers(Master& master) {
+static void clean_workers(Master &master) {
     if (signal_n & (SIGTERM | SIGINT)) {
-        for (const auto& worker : master.workers) {
+        for (const auto &worker: master.workers) {
             int res = kill(worker.pid, SIGTERM);
             if (res < 0) {
                 perror("kill");
@@ -79,21 +81,20 @@ int main(int argc, char **argv) {
     }
 
     try {
-        // TODO: USE THESE IN CONFIGS LATER
-        constexpr int WORKERS_N = 10;
+        // TODO: Make it a parameter in argv
         constexpr int IS_MULTIPROCESS = true;
 
         boost::asio::io_context ctx;
         const std::filesystem::path path{argv[1]};
-        Config::instance(argv[1]);
+        auto &cfg = Config::instance(argv[1]);
         Server server{ctx};
 
         if (IS_MULTIPROCESS) {
             Master master{};
-            master.workers.reserve(WORKERS_N);
+            master.workers.reserve(cfg.workers_num());
 
             // A cycle where workers are started
-            for (auto i = 0; i < WORKERS_N; ++i) {
+            for (std::size_t i = 0; i < cfg.workers_num(); ++i) {
                 pid_t worker_pid = spawn_worker(ctx, server, master);
                 std::println("Spawned a worker, PID: {}", worker_pid);
             }
@@ -111,18 +112,36 @@ int main(int argc, char **argv) {
             }
 
             while (should_run) {
-                int res = 0;
                 siginfo_t child_info{};
-                while ((res = waitid(P_ALL, 0, &child_info, WEXITED | WSTOPPED | WNOHANG)) == 0 && child_info.si_pid != 0 && child_info.si_status != EXIT_SUCCESS) { // Handle all dead chld in a line
-                    std::println("A child died");
-                    auto worker_iter = std::ranges::find_if(master.workers, [&child_info](const auto& worker) {
+                while ((res = waitid(P_ALL, 0, &child_info, WEXITED | WSTOPPED | WNOHANG)) == 0 && child_info.si_pid !=
+                       0 && child_info.si_status != EXIT_SUCCESS) {
+                    // Handle all dead chld in a line
+                    std::println("A child died: {}", child_info.si_status);
+                    auto worker_iter = std::ranges::find_if(master.workers, [&child_info](const auto &worker) {
                         return worker.pid == child_info.si_pid;
                     });
-                    master.workers.erase(worker_iter);
+                    if (worker_iter != master.workers.end()) {
+                        master.workers.erase(worker_iter);
+                    }
 
-                    // Respawn process
-                    pid_t worker_pid = spawn_worker(ctx, server, master);
-                    std::println("Respawned a worker, PID: {}", worker_pid);
+
+                    // Respawn process. At this point if it's dead, it is probably a mistake
+                    bool should_respawn = false;
+
+                    if (child_info.si_code == CLD_EXITED) {
+                        if (child_info.si_status != 0) {
+                            should_respawn = true;
+                        }
+                    } else if (child_info.si_code == CLD_KILLED || child_info.si_code == CLD_DUMPED) {
+                        int sig = child_info.si_status;
+                        if (sig == SIGSEGV || sig == SIGBUS || sig == SIGILL || sig == SIGFPE || sig == SIGABRT) {
+                            should_respawn = true;
+                        }
+                    }
+                    if (should_respawn) {
+                        pid_t worker_pid = spawn_worker(ctx, server, master);
+                        std::println("Respawned a worker, PID: {}", worker_pid);
+                    }
                 }
                 if (res < 0) {
                     perror("waitid");

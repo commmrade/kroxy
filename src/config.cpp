@@ -37,6 +37,12 @@ void parse_common(CommonConfig& cfg, const Json::Value& serv_obj) {
     }
 
     cfg.port = static_cast<unsigned short>(serv_obj.get("port", DEFAULT_PORT).asInt());
+
+    cfg.workers_num = serv_obj.get("workers_num", DEFAULT_WORKERS_NUM).asUInt64();
+    if (cfg.workers_num <= 0) {
+        throw std::runtime_error("Invalid workers number");
+    }
+
     cfg.pass_to = serv_obj.get("pass_to", "").asString();
     if (cfg.pass_to.empty()) {
         throw std::runtime_error("Pass_to is not defined");
@@ -291,6 +297,16 @@ std::string Config::get_tls_key_path() const {
     } else {
         auto serv_cfg = std::get<HttpConfig>(server_config);
         return serv_cfg.tls_key_path;
+    }
+}
+
+std::size_t Config::workers_num() const {
+    if (std::holds_alternative<StreamConfig>(server_config)) {
+        auto serv_cfg = std::get<StreamConfig>(server_config);
+        return serv_cfg.workers_num;
+    } else {
+        auto serv_cfg = std::get<HttpConfig>(server_config);
+        return serv_cfg.workers_num;
     }
 }
 

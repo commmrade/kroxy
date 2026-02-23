@@ -94,6 +94,7 @@
 
 
     "port": 8080,
+    "workers_num": 5,
     "headers": {
       "Host": "$host",
       "X-Real-IP": "$addr"
