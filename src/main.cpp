@@ -40,22 +40,18 @@ static pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &
     }
     if (result == 0) {
         // Child
-        struct sigaction action{};
-        action.sa_handler = SIG_DFL;
-        int res = sigaction(SIGINT, &action, nullptr);
-        if (res < 0) {
-            perror("child sigaction");
-        }
-        res = sigaction(SIGTERM, &action, nullptr);
-        if (res < 0) {
-            perror("child sigaction");
-        }
+        boost::asio::signal_set signals{ctx, SIGINT, SIGTERM};
+        signals.async_wait([&ctx](const boost::system::error_code& errc, [[maybe_unused]] int signal_n) {
+            if (!errc) {
+                ctx.stop();
+            }
+        });
 
         ctx.notify_fork(boost::asio::execution_context::fork_child);
         // Start processing requests
         server.run();
         ctx.run(); // Child stays at this point while processing requests
-        exit(EXIT_SUCCESS);
+        _exit(EXIT_SUCCESS);
     } else {
         // Parent
         ctx.notify_fork(boost::asio::execution_context::fork_parent);
@@ -114,9 +110,8 @@ int main(int argc, char **argv) {
             while (should_run) {
                 siginfo_t child_info{};
                 while ((res = waitid(P_ALL, 0, &child_info, WEXITED | WSTOPPED | WNOHANG)) == 0 && child_info.si_pid !=
-                       0 && child_info.si_status != EXIT_SUCCESS) {
+                       0) {
                     // Handle all dead chld in a line
-                    std::println("A child died: {}", child_info.si_status);
                     auto worker_iter = std::ranges::find_if(master.workers, [&child_info](const auto &worker) {
                         return worker.pid == child_info.si_pid;
                     });
