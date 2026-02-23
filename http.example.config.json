@@ -112,6 +112,6 @@
     "connect_timeout": 60000,
     "resolve_timeout": 60000,
 
-    "pass_to": "google-tls"
+    "pass_to": "httpbin"
   }
 }
