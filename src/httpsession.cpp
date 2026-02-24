@@ -11,7 +11,7 @@ HttpSession::HttpSession(boost::asio::io_context &ctx,
                          bool is_client_tls)
     : Session(ctx, std::move(ssl_srv_ctx), is_client_tls),
       cfg_(std::get<HttpConfig>(Config::instance("").server_config)) {
-    if (!cfg_.file_log.empty()) { logger_.emplace(cfg_.file_log); }
+    if (cfg_.file_log.has_value()) { logger_.emplace(cfg_.file_log.value()); }
 }
 
 void HttpSession::run() {
@@ -124,8 +124,8 @@ void HttpSession::handle_timer(const boost::system::error_code &errc, WaitState 
             }
             case WaitState::CONNECT:
             case WaitState::RESOLVE:
-            case WaitState::PASS_READ:
-            case WaitState::PASS_SEND: {
+            case WaitState::PROXY_READ:
+            case WaitState::PROXY_SEND: {
                 std::println("Timed out: waiting for service");
 
                 auto resp = std::make_shared<boost::beast::http::response<boost::beast::http::string_body> >();
@@ -194,7 +194,7 @@ void HttpSession::handle_service(
 
     session_idx_ = idx;
 
-    bool const host_is_tls = upstream_options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
+    bool const host_is_tls = upstream_options.proxy_tls_enabled.value_or(cfg_.proxy_tls_enabled.value_or(false));
 
     auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(client_sock_.socket().get_executor());
 
@@ -204,15 +204,15 @@ void HttpSession::handle_service(
 
     auto service_ssl_ctx = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_client);
     service_ssl_ctx->set_default_verify_paths();
-    if (upstream_options.pass_tls_verify.value_or(cfg_.pass_tls_verify)) {
+    if (upstream_options.proxy_tls_verify.value_or(cfg_.proxy_tls_verify.value_or(false))) {
         service_ssl_ctx->set_verify_mode(boost::asio::ssl::verify_peer);
     }
-    if ((upstream_options.pass_tls_cert_path.has_value() && upstream_options.pass_tls_key_path.has_value()) || (
-            !cfg_.pass_tls_cert_path.empty() && !cfg_.pass_tls_key_path.empty())) {
+    if ((upstream_options.proxy_tls_cert_path.has_value() && upstream_options.proxy_tls_key_path.has_value()) || (
+            cfg_.proxy_tls_cert_path.has_value() && cfg_.proxy_tls_key_path.has_value())) {
         service_ssl_ctx->use_certificate_chain_file(
-            upstream_options.pass_tls_cert_path.value_or(cfg_.pass_tls_cert_path));
+            upstream_options.proxy_tls_cert_path.value_or(cfg_.proxy_tls_cert_path.value()));
         service_ssl_ctx->use_private_key_file(
-            upstream_options.pass_tls_key_path.value_or(cfg_.pass_tls_key_path),
+            upstream_options.proxy_tls_key_path.value_or(cfg_.proxy_tls_key_path.value()),
             boost::asio::ssl::context::file_format::pem);
     }
     // construct the service Stream (uses the rvalue ctor so is_tls_ is set correctly)
@@ -271,8 +271,8 @@ void HttpSession::handle_service(
                                                                            // connected + (optional) TLS handshake done -> proceed
                                                                            self->prepare_timer(
                                                                                self->upstream_timer_,
-                                                                               WaitState::PASS_SEND,
-                                                                               self->cfg_.pass_send_timeout_ms);
+                                                                               WaitState::PROXY_SEND,
+                                                                               self->cfg_.proxy_send_timeout_ms);
                                                                            self->service_sock_->
                                                                                    async_write_header(
                                                                                        *self->request_s_,
@@ -292,8 +292,8 @@ void HttpSession::handle_service(
                                                                } else {
                                                                    // plain TCP -> proceed
                                                                    self->prepare_timer(
-                                                                       self->upstream_timer_, WaitState::PASS_SEND,
-                                                                       self->cfg_.pass_send_timeout_ms);
+                                                                       self->upstream_timer_, WaitState::PROXY_SEND,
+                                                                       self->cfg_.proxy_send_timeout_ms);
                                                                    self->service_sock_->async_write_header(
                                                                        *self->request_s_,
                                                                        [self](
@@ -323,7 +323,7 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
         request_s_.emplace(msg);
 
         if (service_sock_) {
-            prepare_timer(upstream_timer_, WaitState::PASS_SEND, cfg_.pass_send_timeout_ms);
+            prepare_timer(upstream_timer_, WaitState::PROXY_SEND, cfg_.proxy_send_timeout_ms);
             service_sock_->async_write_header(*request_s_,
                                               [self = shared_from_base<HttpSession>()](
                                           const boost::system::error_code &errc2,
@@ -379,7 +379,7 @@ void HttpSession::do_read_client_body(const boost::system::error_code &errc, [[m
         request_p_->get().body().data = us_buf_.data();
         request_p_->get().body().more = !request_p_->is_done();
 
-        prepare_timer(upstream_timer_, WaitState::PASS_SEND, cfg_.pass_send_timeout_ms);
+        prepare_timer(upstream_timer_, WaitState::PROXY_SEND, cfg_.proxy_send_timeout_ms);
         service_sock_->async_write_message(
             *request_s_,
             [self = shared_from_base<HttpSession>()](const boost::system::error_code &errc2, std::size_t bytes_tf2) {
@@ -558,7 +558,7 @@ void HttpSession::do_downstream() {
             response_p_.emplace();
             downstream_buf_.clear();
 
-            prepare_timer(downstream_timer_, WaitState::PASS_READ, cfg_.pass_read_timeout_ms);
+            prepare_timer(downstream_timer_, WaitState::PROXY_READ, cfg_.proxy_read_timeout_ms);
             service_sock_->async_read_header(downstream_buf_,
                                              *response_p_,
                                              [self = shared_from_base<HttpSession>()](
@@ -569,7 +569,7 @@ void HttpSession::do_downstream() {
             break;
         }
         case State::BODY: {
-            prepare_timer(downstream_timer_, WaitState::PASS_READ, cfg_.pass_read_timeout_ms);
+            prepare_timer(downstream_timer_, WaitState::PROXY_READ, cfg_.proxy_read_timeout_ms);
             service_sock_->async_read_message(downstream_buf_,
                                               *response_p_,
                                               [self = shared_from_base<HttpSession>()](

@@ -10,8 +10,8 @@ StreamSession::StreamSession(boost::asio::io_context &ctx, std::shared_ptr<boost
                              bool is_client_tls)
     : Session(ctx, std::move(ssl_srv_ctx), is_client_tls),
       cfg_(std::get<StreamConfig>(Config::instance("").server_config)) {
-    if (!cfg_.file_log.empty()) {
-        logger_.emplace(cfg_.file_log);
+    if (cfg_.file_log.has_value()) {
+        logger_.emplace(cfg_.file_log.value());
     }
 }
 
@@ -50,7 +50,7 @@ void StreamSession::handle_service() {
     }
     session_idx_ = idx;
 
-    bool const host_is_tls = upstream_options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
+    bool const host_is_tls = upstream_options.proxy_tls_enabled.value_or(cfg_.proxy_tls_enabled.value_or(false));
 
     auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(client_sock_.socket().get_executor());
 
@@ -59,15 +59,15 @@ void StreamSession::handle_service() {
 
     auto service_ssl_ctx = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_client);
     service_ssl_ctx->set_default_verify_paths();
-    if (upstream_options.pass_tls_verify.value_or(cfg_.pass_tls_verify)) {
+    if (upstream_options.proxy_tls_verify.value_or(cfg_.proxy_tls_verify.value_or(false))) {
         service_ssl_ctx->set_verify_mode(boost::asio::ssl::verify_peer);
     }
-    if ((upstream_options.pass_tls_cert_path.has_value() && upstream_options.pass_tls_key_path.has_value()) || (
-            !cfg_.pass_tls_cert_path.empty() && !cfg_.pass_tls_key_path.empty())) {
+    if ((upstream_options.proxy_tls_cert_path.has_value() && upstream_options.proxy_tls_key_path.has_value()) || (
+            cfg_.proxy_tls_cert_path.has_value() && cfg_.proxy_tls_key_path.has_value())) {
         service_ssl_ctx->use_certificate_chain_file(
-            upstream_options.pass_tls_cert_path.value_or(cfg_.pass_tls_cert_path));
+            upstream_options.proxy_tls_cert_path.value_or(cfg_.proxy_tls_cert_path.value()));
         service_ssl_ctx->use_private_key_file(
-            upstream_options.pass_tls_key_path.value_or(cfg_.pass_tls_key_path),
+            upstream_options.proxy_tls_key_path.value_or(cfg_.proxy_tls_key_path.value()),
             boost::asio::ssl::context::file_format::pem);
     }
     service_sock_ = std::make_unique<Stream>(ioc, std::move(service_ssl_ctx), host_is_tls);
@@ -172,7 +172,7 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
         upstream_buf_.commit(bytes_tf);
         auto write_data = upstream_buf_.data();
 
-        prepare_timer(upstream_timer_, WaitState::PASS_SEND, cfg_.pass_send_timeout_ms);
+        prepare_timer(upstream_timer_, WaitState::PROXY_SEND, cfg_.proxy_send_timeout_ms);
         service_sock_->async_write(
             write_data, [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc2,
                                                                    std::size_t bytes_tf2) {
@@ -268,7 +268,7 @@ void StreamSession::do_write_client(const boost::system::error_code &errc, std::
 }
 
 void StreamSession::do_downstream() {
-    prepare_timer(downstream_timer_, WaitState::PASS_READ, cfg_.pass_read_timeout_ms);
+    prepare_timer(downstream_timer_, WaitState::PROXY_READ, cfg_.proxy_read_timeout_ms);
     service_sock_->async_read_some(downstream_buf_.prepare(BUF_SIZE),
                                    [self = shared_from_base<StreamSession>()](const boost::system::error_code &errc,
                                                                               std::size_t bytes_tf) {

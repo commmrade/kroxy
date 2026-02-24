@@ -90,29 +90,29 @@ struct LogFormat {
 struct CommonConfig {
     unsigned short port{};
     std::size_t workers_num{};
-    std::string pass_to;
+    std::string proxy_to;
 
     // Timers stuff
     std::size_t send_timeout_ms{}; // Send to client
     std::size_t connect_timeout_ms{};
     std::size_t resolve_timeout_ms{};
 
-    std::size_t pass_read_timeout_ms{};
-    std::size_t pass_send_timeout_ms{};
+    std::size_t proxy_read_timeout_ms{};
+    std::size_t proxy_send_timeout_ms{};
 
     // tls server stuff
-    bool tls_enabled{};
-    std::string tls_cert_path;
-    std::string tls_key_path;
-    bool tls_verify_client{};
+    std::optional<bool> tls_enabled{};
+    std::optional<std::string> tls_cert_path;
+    std::optional<std::string> tls_key_path;
+    std::optional<bool> tls_verify_client{};
 
     // tls client stuff
-    bool pass_tls_enabled{};
-    std::string pass_tls_cert_path;
-    std::string pass_tls_key_path;
-    bool pass_tls_verify{};
+    std::optional<bool> proxy_tls_enabled{};
+    std::optional<std::string> proxy_tls_cert_path;
+    std::optional<std::string> proxy_tls_key_path;
+    std::optional<bool> proxy_tls_verify{};
 
-    std::string file_log;
+    std::optional<std::string> file_log;
     LogFormat format_log;
 
     Servers servers;
@@ -138,8 +138,8 @@ enum class WaitState {
     SEND, // Client
     CONNECT,
     RESOLVE,
-    PASS_READ, // Service
-    PASS_SEND, // Service
+    PROXY_READ, // Service
+    PROXY_SEND, // Service
 };
 
 static constexpr unsigned short DEFAULT_PORT = 8080;
@@ -152,8 +152,8 @@ static constexpr std::size_t DEFAULT_SEND_TIMEOUT = DEFAULT_TIMEOUT;
 static constexpr std::size_t DEFAULT_CONNECT_TIMEOUT = DEFAULT_TIMEOUT;
 static constexpr std::size_t DEFAULT_RESOLVE_TIMEOUT = DEFAULT_TIMEOUT;
 static constexpr std::size_t DEFAULT_READ_TIMEOUT = DEFAULT_TIMEOUT;
-static constexpr std::size_t DEFAULT_PASS_READ_TIMEOUT = DEFAULT_TIMEOUT;
-static constexpr std::size_t DEFAULT_PASS_SEND_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_PROXY_READ_TIMEOUT = DEFAULT_TIMEOUT;
+static constexpr std::size_t DEFAULT_PROXY_SEND_TIMEOUT = DEFAULT_TIMEOUT;
 static constexpr std::size_t TIMER_HANDLER_TIMEOUT = 10000;
 
 struct Config;
@@ -182,7 +182,7 @@ struct Config {
         return std::holds_alternative<StreamConfig>(server_config);
     }
 
-    std::string get_pass_to() const;
+    std::string get_proxy_to() const;
 
     unsigned short get_port() const;
 
@@ -196,7 +196,7 @@ struct Config {
 
     bool get_tls_verify_client() const;
 
-    bool contains_pass_to() const;
+    bool contains_proxy_to() const;
 
     std::size_t workers_num() const;
 };

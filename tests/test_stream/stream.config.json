@@ -11,6 +11,6 @@
       }
     },
     "port": 8080,
-    "pass_to": "service"
+    "proxy_to": "service"
   }
 }

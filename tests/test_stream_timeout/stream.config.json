@@ -11,8 +11,8 @@
       }
     },
     "port": 8080,
-    "pass_read_timeout": 1000,
+    "proxy_read_timeout": 1000,
     "read_timeout": 1000,
-    "pass_to": "service"
+    "proxy_to": "service"
   }
 }

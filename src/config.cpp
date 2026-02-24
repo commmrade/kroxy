@@ -43,9 +43,9 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
         throw std::runtime_error("Invalid workers number");
     }
 
-    cfg.pass_to = serv_obj.get("pass_to", "").asString();
-    if (cfg.pass_to.empty()) {
-        throw std::runtime_error("Pass_to is not defined");
+    cfg.proxy_to = serv_obj.get("proxy_to", "").asString();
+    if (cfg.proxy_to.empty()) {
+        throw std::runtime_error("proxy_to is not defined");
     }
 
 
@@ -53,30 +53,49 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
     cfg.connect_timeout_ms = serv_obj.get("connect_timeout", DEFAULT_CONNECT_TIMEOUT).asUInt64();
     cfg.resolve_timeout_ms = serv_obj.get("resolve_timeout", DEFAULT_RESOLVE_TIMEOUT).asUInt64();
 
-    cfg.pass_read_timeout_ms = serv_obj.get("pass_read_timeout", DEFAULT_PASS_READ_TIMEOUT).asUInt64();
-    cfg.pass_send_timeout_ms = serv_obj.get("pass_send_timeout", DEFAULT_PASS_SEND_TIMEOUT).asUInt64();
+    cfg.proxy_read_timeout_ms = serv_obj.get("proxy_read_timeout", DEFAULT_PROXY_READ_TIMEOUT).asUInt64();
+    cfg.proxy_send_timeout_ms = serv_obj.get("proxy_send_timeout", DEFAULT_PROXY_SEND_TIMEOUT).asUInt64();
 
 
-    cfg.tls_enabled = serv_obj.get("tls_enabled", false).asBool();
-    cfg.tls_cert_path = serv_obj.get("tls_cert_path", "").asString();
-    cfg.tls_key_path = serv_obj.get("tls_key_path", "").asString();
-    cfg.tls_verify_client = serv_obj.get("tls_verify_client", false).asBool();
+    if (serv_obj.isMember("tls_enabled")) {
+        cfg.tls_enabled = serv_obj.get("tls_enabled", false).asBool();
+        if (cfg.tls_enabled) {
+            std::string tls_cert_path = serv_obj.get("tls_cert_path", "").asString();
+            std::string tls_key_path = serv_obj.get("tls_key_path", "").asString();
+            if (tls_cert_path.empty() || tls_key_path.empty()) {
+                throw std::runtime_error("TLS Server Invalid certificate/key path");
+            }
 
-    if (cfg.tls_enabled && (cfg.tls_cert_path.empty() || cfg.tls_key_path.empty())) {
-        throw std::runtime_error("TLS enabled, but tls_cert_path or tls_key_path is empty");
+            cfg.tls_cert_path.emplace(std::move(tls_cert_path));
+            cfg.tls_key_path.emplace(std::move(tls_key_path));
+
+            if (serv_obj.isMember("tls_verify")) {
+                cfg.tls_verify_client = serv_obj.get("tls_verify_client", false).asBool();
+            }
+        }
     }
+    if (serv_obj.isMember("proxy_tls_enabled")) {
+        cfg.proxy_tls_enabled = serv_obj.get("proxy_tls_enabled", false).asBool();
+        if (cfg.proxy_tls_enabled) {
+            std::string proxy_tls_cert_path = serv_obj.get("proxy_tls_cert_path", "").asString();
+            std::string proxy_tls_key_path = serv_obj.get("proxy_tls_key_path", "").asString();
+            if (proxy_tls_cert_path.empty() || proxy_tls_key_path.empty()) {
+                throw std::runtime_error("TLS Proxy Invalid certificate/key path");
+            }
 
-    cfg.pass_tls_enabled = serv_obj.get("pass_tls_enabled", false).asBool();
-    cfg.pass_tls_cert_path = serv_obj.get("pass_tls_cert_path", "").asString();
-    cfg.pass_tls_key_path = serv_obj.get("pass_tls_key_path", "").asString();
-    cfg.pass_tls_verify = serv_obj.get("pass_tls_verify", false).asBool();
+            cfg.proxy_tls_cert_path.emplace(std::move(proxy_tls_cert_path));
+            cfg.proxy_tls_key_path.emplace(std::move(proxy_tls_key_path));
 
-    if (cfg.pass_tls_enabled && (cfg.pass_tls_cert_path.empty() || cfg.pass_tls_key_path.empty())) {
-        throw std::runtime_error("TLS enabled, but pass_cert_path or pass_key_path is empty");
+            if (serv_obj.isMember("proxy_tls_verify")) {
+                cfg.proxy_tls_verify = serv_obj.get("proxy_tls_verify", false).asBool();
+            }
+        }
     }
 
     // Logs stuff
-    cfg.file_log = serv_obj.get("file_log", "").asString();
+    if (serv_obj.isMember("file_log")) {
+        cfg.file_log = serv_obj.get("file_log", "").asString();
+    }
     cfg.format_log.format = serv_obj.get("format_log", "").asString();
     cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
 
@@ -85,21 +104,21 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
         for (const auto &serv_block: servers_obj.getMemberNames()) {
             const auto &block = servers_obj[serv_block];
 
-            std::optional<bool> pass_tls_enabled;
-            std::optional<bool> pass_tls_verify;
-            std::optional<std::string> pass_tls_cert_path;
-            std::optional<std::string> pass_tls_key_path;
-            if (block.isMember("pass_tls_enabled")) {
-                pass_tls_enabled = block["pass_tls_enabled"].asBool();
+            std::optional<bool> proxy_tls_enabled;
+            std::optional<bool> proxy_tls_verify;
+            std::optional<std::string> proxy_tls_cert_path;
+            std::optional<std::string> proxy_tls_key_path;
+            if (block.isMember("proxy_tls_enabled")) {
+                proxy_tls_enabled = block["proxy_tls_enabled"].asBool();
             }
-            if (block.isMember("pass_tls_verify")) {
-                pass_tls_verify = block["pass_tls_verify"].asBool();
+            if (block.isMember("proxy_tls_verify")) {
+                proxy_tls_verify = block["proxy_tls_verify"].asBool();
             }
-            if (block.isMember("pass_tls_cert_path")) {
-                pass_tls_cert_path = block["pass_tls_cert_path"].asString();
+            if (block.isMember("proxy_tls_cert_path")) {
+                proxy_tls_cert_path = block["proxy_tls_cert_path"].asString();
             }
-            if (block.isMember("pass_tls_key_path")) {
-                pass_tls_key_path = block["pass_tls_key_path"].asString();
+            if (block.isMember("proxy_tls_key_path")) {
+                proxy_tls_key_path = block["proxy_tls_key_path"].asString();
             }
 
             LoadBalancingAlgo const algo = [&block]() -> LoadBalancingAlgo {
@@ -120,10 +139,10 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
             }();
 
             UpstreamOptions opts;
-            opts.pass_tls_enabled = pass_tls_enabled;
-            opts.pass_tls_verify = pass_tls_verify;
-            opts.pass_tls_cert_path = pass_tls_cert_path;
-            opts.pass_tls_key_path = pass_tls_key_path;
+            opts.proxy_tls_enabled = proxy_tls_enabled;
+            opts.proxy_tls_verify = proxy_tls_verify;
+            opts.proxy_tls_cert_path = proxy_tls_cert_path;
+            opts.proxy_tls_key_path = proxy_tls_key_path;
 
             std::shared_ptr<Upstream> upstream;
 
@@ -223,30 +242,30 @@ Config parse_config(const std::filesystem::path &path) {
         throw std::runtime_error{"Server configuration not found"};
     }
 
-    if (!result.contains_pass_to()) {
+    if (!result.contains_proxy_to()) {
         throw std::runtime_error("Incorrect pass to was supplied. Such server does not exist");
     }
     return result;
 }
 
 
-std::string Config::get_pass_to() const {
+std::string Config::get_proxy_to() const {
     if (std::holds_alternative<StreamConfig>(server_config)) {
         auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.pass_to;
+        return serv_cfg.proxy_to;
     } else {
         auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.pass_to;
+        return serv_cfg.proxy_to;
     }
 }
 
 std::shared_ptr<Upstream> Config::get_upstream() {
     if (std::holds_alternative<StreamConfig>(server_config)) {
         auto &cfg = std::get<StreamConfig>(server_config);
-        return cfg.servers.servers[cfg.pass_to];
+        return cfg.servers.servers[cfg.proxy_to];
     } else {
         auto &cfg = std::get<HttpConfig>(server_config);
-        return cfg.servers.servers[cfg.pass_to];
+        return cfg.servers.servers[cfg.proxy_to];
     }
 }
 
@@ -260,43 +279,43 @@ unsigned short Config::get_port() const {
     }
 }
 
-bool Config::contains_pass_to() const {
+bool Config::contains_proxy_to() const {
     if (std::holds_alternative<StreamConfig>(server_config)) {
         auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.servers.servers.contains(get_pass_to());
+        return serv_cfg.servers.servers.contains(get_proxy_to());
     } else {
         auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.servers.servers.contains(get_pass_to());
+        return serv_cfg.servers.servers.contains(get_proxy_to());
     }
 }
 
 bool Config::is_tls_enabled() const {
     if (std::holds_alternative<StreamConfig>(server_config)) {
         auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.tls_enabled;
+        return serv_cfg.tls_enabled.value_or(false);
     } else {
         auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.tls_enabled;
+        return serv_cfg.tls_enabled.value_or(false);
     }
 }
 
 std::string Config::get_tls_cert_path() const {
     if (std::holds_alternative<StreamConfig>(server_config)) {
         auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.tls_cert_path;
+        return serv_cfg.tls_cert_path.value_or("");
     } else {
         auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.tls_cert_path;
+        return serv_cfg.tls_cert_path.value_or("");
     }
 }
 
 std::string Config::get_tls_key_path() const {
     if (std::holds_alternative<StreamConfig>(server_config)) {
         auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.tls_key_path;
+        return serv_cfg.tls_key_path.value_or("");
     } else {
         auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.tls_key_path;
+        return serv_cfg.tls_key_path.value_or("");
     }
 }
 
@@ -313,9 +332,9 @@ std::size_t Config::workers_num() const {
 bool Config::get_tls_verify_client() const {
     if (std::holds_alternative<StreamConfig>(server_config)) {
         auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.tls_verify_client;
+        return serv_cfg.tls_verify_client.value_or(false);
     } else {
         auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.tls_verify_client;
+        return serv_cfg.tls_verify_client.value_or(false);
     }
 }

@@ -1,17 +1,13 @@
 {
   "servers": {
     "google": {
-      "pass_tls_enabled": false,
-      "hosts": [
-        { "host": "google.com", "port": 80 }
-      ]
+      "proxy_tls_enabled": false,
+      "hosts": [{ "host": "google.com", "port": 80 }]
     },
 
     "google-tls": {
-      "pass_tls_enabled": true,
-      "hosts": [
-        { "host": "google.com", "port": 443 }
-      ]
+      "proxy_tls_enabled": true,
+      "hosts": [{ "host": "google.com", "port": 443 }]
     },
 
     "fuck": {
@@ -24,35 +20,27 @@
     },
 
     "fuck-tls": {
-      "pass_tls_enabled": true,
-      "pass_tls_verify": false,
-      "pass_tls_cert_path": "../tls/certificate.crt",
-      "pass_tls_key_path": "../tls/private.key",
-      "hosts": [
-        { "host": "127.0.0.1", "port": 9090 }
-      ]
+      "proxy_tls_enabled": true,
+      "proxy_tls_verify": false,
+      "proxy_tls_cert_path": "../tls/certificate.crt",
+      "proxy_tls_key_path": "../tls/private.key",
+      "hosts": [{ "host": "127.0.0.1", "port": 9090 }]
     },
 
     "vk": {
-      "pass_tls_enabled": false,
-      "hosts": [
-        { "host": "vk.com", "port": 80 }
-      ]
+      "proxy_tls_enabled": false,
+      "hosts": [{ "host": "vk.com", "port": 80 }]
     },
 
     "vk-tls": {
-      "pass_tls_enabled": true,
-      "pass_tls_verify": true,
-      "hosts": [
-        { "host": "vk.com", "port": 443 }
-      ]
+      "proxy_tls_enabled": true,
+      "proxy_tls_verify": true,
+      "hosts": [{ "host": "vk.com", "port": 443 }]
     },
 
     "httpbin": {
-      "pass_tls_enabled": true,
-      "hosts": [
-        { "host": "httpbin.org", "port": 443 }
-      ]
+      "proxy_tls_enabled": true,
+      "hosts": [{ "host": "httpbin.org", "port": 443 }]
     }
   },
 
@@ -73,6 +61,6 @@
     "format_log": "URI: $request_uri, method $request_method, status: $status, user agent: $http_user_agent, $bytes_sent haha",
 
     "timeout_ms": 5000,
-    "pass_to": "httpbin"
+    "proxy_to": "httpbin"
   }
 }

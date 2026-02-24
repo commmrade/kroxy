@@ -113,7 +113,7 @@ static inline Config parse_config_from_string(std::string_view text) {
         throw std::runtime_error("Servers block is empty");
     }
 
-    if (!result.servers.servers.contains(result.get_pass_to())) {
+    if (!result.servers.servers.contains(result.get_proxy_to())) {
         throw std::runtime_error("Incorrect pass to was supplied. Such server does not exist");
     }
 
@@ -127,7 +127,7 @@ TEST(StreamConfig, NoServers) {
       "stream": {
         "port": 8080,
         "timeout_ms": 500,
-        "pass_to": "google"
+        "proxy_to": "google"
       }
     }
     )json";
@@ -139,7 +139,7 @@ TEST(StreamConfig, NoServers) {
 }
 
 TEST(StreamConfig, EmptyPassTo) {
-    const char* config_no_pass_to = R"json(
+    const char* config_no_proxy_to = R"json(
     {
       "servers": {
         "google": [
@@ -160,11 +160,11 @@ TEST(StreamConfig, EmptyPassTo) {
       }
     }
     )json";
-    EXPECT_ANY_THROW(parse_config_from_string(config_no_pass_to));
+    EXPECT_ANY_THROW(parse_config_from_string(config_no_proxy_to));
 }
 
 TEST(StreamConfig, IncorrectPassTo) {
-    const char* config_no_pass_to = R"json(
+    const char* config_no_proxy_to = R"json(
     {
       "servers": {
         "google": [
@@ -175,14 +175,14 @@ TEST(StreamConfig, IncorrectPassTo) {
       "stream": {
         "port": 8080,
         "timeout_ms": 500,
-        "pass_to": "goggles",
+        "proxy_to": "goggles",
 
         "file_log": "/dev/stdout",
         "format_log": "Client address is $client_addr"
       }
     }
     )json";
-    EXPECT_ANY_THROW(parse_config_from_string(config_no_pass_to));
+    EXPECT_ANY_THROW(parse_config_from_string(config_no_proxy_to));
 }
 
 TEST(StreamConfig, TlsEnabledWithCerts) {
@@ -195,7 +195,7 @@ TEST(StreamConfig, TlsEnabledWithCerts) {
       "stream": {
         "port": 8080,
         "timeout_ms": 500,
-        "pass_to": "google",
+        "proxy_to": "google",
 
         "tls_enabled": true,
         "tls_cert_path": "../tls/certificate.crt",
@@ -216,7 +216,7 @@ TEST(StreamConfig, TlsEnabledNoCerts) {
       "stream": {
         "port": 8080,
         "timeout_ms": 500,
-        "pass_to": "google",
+        "proxy_to": "google",
 
         "tls_enabled": true,
       }
@@ -231,7 +231,7 @@ TEST(HttpConfig, NoServers) {
       "http": {
         "port": 8080,
         "timeout_ms": 500,
-        "pass_to": "google"
+        "proxy_to": "google"
       }
     }
     )json";
@@ -243,7 +243,7 @@ TEST(HttpConfig, NoServers) {
 }
 
 TEST(HttpConfig, EmptyPassTo) {
-    const char* config_no_pass_to = R"json(
+    const char* config_no_proxy_to = R"json(
     {
       "servers": {
         "google": [
@@ -264,11 +264,11 @@ TEST(HttpConfig, EmptyPassTo) {
       }
     }
     )json";
-    EXPECT_ANY_THROW(parse_config_from_string(config_no_pass_to));
+    EXPECT_ANY_THROW(parse_config_from_string(config_no_proxy_to));
 }
 
 TEST(HttpConfig, IncorrectPassTo) {
-    const char* config_no_pass_to = R"json(
+    const char* config_no_proxy_to = R"json(
     {
       "servers": {
         "google": [
@@ -279,14 +279,14 @@ TEST(HttpConfig, IncorrectPassTo) {
       "http": {
         "port": 8080,
         "timeout_ms": 500,
-        "pass_to": "goggles",
+        "proxy_to": "goggles",
 
         "file_log": "/dev/stdout",
         "format_log": "Client address is $client_addr"
       }
     }
     )json";
-    EXPECT_ANY_THROW(parse_config_from_string(config_no_pass_to));
+    EXPECT_ANY_THROW(parse_config_from_string(config_no_proxy_to));
 }
 
 TEST(HttpConfig, TlsEnabledWithCerts) {
@@ -299,7 +299,7 @@ TEST(HttpConfig, TlsEnabledWithCerts) {
       "http": {
         "port": 8080,
         "timeout_ms": 500,
-        "pass_to": "google",
+        "proxy_to": "google",
 
         "tls_enabled": true,
         "tls_cert_path": "../tls/certificate.crt",
@@ -320,7 +320,7 @@ TEST(HttpConfig, TlsEnabledNoCerts) {
       "http": {
         "port": 8080,
         "timeout_ms": 500,
-        "pass_to": "google",
+        "proxy_to": "google",
 
         "tls_enabled": true,
       }

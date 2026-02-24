@@ -19,10 +19,10 @@ struct BalancerData {
 };
 
 struct UpstreamOptions {
-    std::optional<bool> pass_tls_enabled;
-    std::optional<bool> pass_tls_verify; // verifies serv. cert
-    std::optional<std::string> pass_tls_cert_path;
-    std::optional<std::string> pass_tls_key_path;
+    std::optional<bool> proxy_tls_enabled;
+    std::optional<bool> proxy_tls_verify; // verifies serv. cert
+    std::optional<std::string> proxy_tls_cert_path;
+    std::optional<std::string> proxy_tls_key_path;
 };
 
 struct Host {

@@ -46,7 +46,7 @@ static pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &
     ctx.notify_fork(boost::asio::execution_context::fork_prepare);
     pid_t const result = fork();
     if (result == -1) {
-        throw std::runtime_error("Starting a worker failed");
+        throw std::runtime_error(std::format("Failed to start a worker: {}", std::strerror(errno)));
     }
     if (result == 0) {
         // Child
@@ -94,13 +94,12 @@ static void master_sig_handler(boost::asio::signal_set &s_set, boost::asio::io_c
                 }
                 if (should_respawn) {
                     pid_t worker_pid = spawn_worker(ctx, server, master);
-                    std::println("Respawned a worker, PID: {}", worker_pid);
                 }
 
                 child_info.si_pid = 0; // clear this, so there won't be an inf. loop
             }
             if (res < 0) {
-                std::println(stderr, "waitid to reap children failed: {}", std::strerror(errno));
+                std::println(stderr, "waitid failed: {}", std::strerror(errno));
             }
 
             s_set.async_wait([&](const boost::system::error_code &errc2, int sig_n2) {
@@ -130,13 +129,11 @@ int main(int argc, char **argv) {
         Server server{ctx};
 
         if (IS_MULTIPROCESS) {
-            std::println("Parent PID: {}", getpid());
 
             Master master{};
             master.workers.reserve(cfg.workers_num());
             for (std::size_t i = 0; i < cfg.workers_num(); ++i) {
                 pid_t worker_pid = spawn_worker(ctx, server, master);
-                std::println("Spawned a worker, PID: {}", worker_pid);
             }
 
             boost::asio::signal_set s_set{ctx, SIGTERM, SIGINT, SIGCHLD};
