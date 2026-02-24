@@ -37,12 +37,13 @@ int main(int argc, char **argv) {
             Master master{};
             master.workers.reserve(cfg.workers_num());
             for (std::size_t i = 0; i < cfg.workers_num(); ++i) {
-                spawn_worker(ctx, server, master);
+                const auto worker = Worker::spawn(ctx, server);
+                master.workers.emplace_back(worker);
             }
 
             boost::asio::signal_set s_set{ctx, SIGTERM, SIGINT, SIGCHLD};
             s_set.async_wait([&](const boost::system::error_code &errc, const int sig_n) {
-                master_sig_handler(s_set, ctx, server, master, errc, sig_n);
+                master.signal_handler(s_set, ctx, server, errc, sig_n);
             });
 
             ctx.run();

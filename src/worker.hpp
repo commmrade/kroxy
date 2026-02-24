@@ -16,14 +16,14 @@ struct Master {
 
     void clear_workers();
     void erase_worker(pid_t pid);
+
+    void signal_handler(boost::asio::signal_set &s_set, boost::asio::io_context &ctx, Server &server, const boost::system::error_code &errc, const int sig_n);
 };
-void master_sig_handler(boost::asio::signal_set &s_set, boost::asio::io_context &ctx, Server &server,
-                               Master &master, const boost::system::error_code &errc,
-                               const int sig_n);
 
 struct Worker {
     pid_t pid;
+    static Worker spawn(boost::asio::io_context& ctx, Server& server);
 };
-pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &master);
+// pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &master);
 
 #endif //KROXY_WORKER_HPP

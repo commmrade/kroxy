@@ -35,8 +35,49 @@ void Master::erase_worker(pid_t pid) {
     });
 }
 
-// Parent returns from this function, but newly created child never does
-pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &master) {
+void Master::signal_handler(boost::asio::signal_set &s_set, boost::asio::io_context &ctx, Server &server,
+                            const boost::system::error_code &errc, const int sig_n) {
+    if (!errc) {
+        if (sig_n == SIGCHLD) {
+            // Children died
+            int res{};
+            siginfo_t child_info{};
+            while ((res = waitid(P_ALL, 0, &child_info, WEXITED | WSTOPPED | WNOHANG)) == 0 && child_info.si_pid !=
+                   0) {
+                erase_worker(child_info.si_pid);
+
+                bool should_respawn = false;
+                if (child_info.si_code == CLD_EXITED) {
+                    if (child_info.si_status != 0) {
+                        should_respawn = true;
+                    }
+                } else if (child_info.si_code == CLD_KILLED || child_info.si_code == CLD_DUMPED) {
+                    should_respawn = true;
+                }
+                if (should_respawn) {
+                    const auto worker = Worker::spawn(ctx, server);
+                    workers.emplace_back(worker);
+                }
+
+                child_info.si_pid = 0; // clear this, so there won't be an inf. loop
+                   }
+            if (res < 0) {
+                std::println(stderr, "waitid failed: {}", std::strerror(errno)); // NOLINT(concurrency-mt-unsafe)
+            }
+
+            s_set.async_wait([&](const boost::system::error_code &errc2, int sig_n2) {
+                signal_handler(s_set, ctx, server, errc2, sig_n2);
+                // master_sig_handler(s_set, ctx, server, master, errc2, sig_n2);
+            });
+        } else {
+            // At this point it should exit
+            clear_workers();
+            exit(128 + sig_n); // By convention exit status is 128 + signal number // NOLINT(concurrency-mt-unsafe)
+        }
+    }
+}
+
+Worker Worker::spawn(boost::asio::io_context& ctx, Server& server) {
     ctx.notify_fork(boost::asio::execution_context::fork_prepare);
     pid_t const result = fork();
     if (result == -1) {
@@ -61,48 +102,6 @@ pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &master)
     } else {
         // Parent
         ctx.notify_fork(boost::asio::execution_context::fork_parent);
-        master.workers.emplace_back(result);
-        return result;
-    }
-}
-
-void master_sig_handler(boost::asio::signal_set &s_set, boost::asio::io_context &ctx, Server &server,
-                               Master &master, const boost::system::error_code &errc,
-                               const int sig_n) {
-    if (!errc) {
-        if (sig_n == SIGCHLD) {
-            // Children died
-            int res{};
-            siginfo_t child_info{};
-            while ((res = waitid(P_ALL, 0, &child_info, WEXITED | WSTOPPED | WNOHANG)) == 0 && child_info.si_pid !=
-                   0) {
-                master.erase_worker(child_info.si_pid);
-
-                bool should_respawn = false;
-                if (child_info.si_code == CLD_EXITED) {
-                    if (child_info.si_status != 0) {
-                        should_respawn = true;
-                    }
-                } else if (child_info.si_code == CLD_KILLED || child_info.si_code == CLD_DUMPED) {
-                    should_respawn = true;
-                }
-                if (should_respawn) {
-                    spawn_worker(ctx, server, master);
-                }
-
-                child_info.si_pid = 0; // clear this, so there won't be an inf. loop
-            }
-            if (res < 0) {
-                std::println(stderr, "waitid failed: {}", std::strerror(errno)); // NOLINT(concurrency-mt-unsafe)
-            }
-
-            s_set.async_wait([&](const boost::system::error_code &errc2, int sig_n2) {
-                master_sig_handler(s_set, ctx, server, master, errc2, sig_n2);
-            });
-        } else {
-            // At this point it should exit
-            master.clear_workers();
-            exit(128 + sig_n); // By convention exit status is 128 + signal number // NOLINT(concurrency-mt-unsafe)
-        }
+        return Worker{result};
     }
 }
