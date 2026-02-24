@@ -78,6 +78,7 @@ void parse_common(CommonConfig& cfg, const Json::Value& serv_obj) {
 
     // Logs stuff
     cfg.file_log = serv_obj.get("file_log", "").asString();
+    cfg.format_log.format = serv_obj.get("format_log", "").asString();
     cfg.format_log.used_vars = parse_variables(cfg.format_log.format);
 
     const auto &servers_obj = serv_obj["servers"];

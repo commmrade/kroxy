@@ -8,18 +8,14 @@
 #include <filesystem>
 #include <fstream>
 #include <print>
-
 #include "config.hpp"
+#include <fcntl.h>
 
 class Logger {
 public:
-    explicit Logger(const std::filesystem::path &path) : m_file(path, std::ios_base::app) {
-        if (!m_file.is_open()) { throw std::runtime_error("Can't open file"); }
-    }
+    explicit Logger(const std::filesystem::path &path);
 
-    ~Logger() {
-        m_file.flush(); // std::ofstream destructor does not flush
-    }
+    ~Logger();
 
     Logger(const Logger &) = delete;
 
@@ -32,7 +28,8 @@ public:
     void write(std::string_view msg);
 
 private:
-    std::ofstream m_file;
+    int m_file{};
+    // std::ofstream m_file;
 };
 
 void replace_variable(std::string &log_msg, LogFormat::Variable var, const std::string &replace_to);

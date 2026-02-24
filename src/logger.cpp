@@ -4,6 +4,16 @@
 
 #include "logger.hpp"
 
+Logger::Logger(const std::filesystem::path &path) {
+    m_file = open(path.c_str(), O_APPEND | O_CREAT | O_WRONLY, 0644);
+    if (m_file < 0) {
+        throw std::runtime_error("Was not able to open a log file");
+    }
+}
+
+Logger::~Logger() {
+    close(m_file);
+}
 
 void replace_variable(std::string &log_msg, LogFormat::Variable var, const std::string &replace_to) {
     const std::string var_name = '$' + LogFormat::variable_to_string(var);
@@ -17,5 +27,5 @@ void Logger::write(std::string_view msg) {
     final_msg += msg;
     final_msg += '\n';
 
-    m_file.write(final_msg.data(), static_cast<std::streamsize>(final_msg.size()));
+    ::write(m_file, final_msg.c_str(), final_msg.size()); // Kernel syncs these writes
 }
