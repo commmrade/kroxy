@@ -13,13 +13,18 @@ void Master::clear_workers() {
     for (const auto &worker: workers) {
         int res = kill(worker.pid, SIGTERM);
         if (res < 0) {
-            std::println(stderr, "kill failed: {}", std::strerror(errno));
+            std::println(stderr, "kill failed: {}", std::strerror(errno)); // NOLINT(concurrency-mt-unsafe)
         }
 
         siginfo_t siginfo{};
-        res = waitid(P_PID, static_cast<id_t>(worker.pid), &siginfo, WEXITED | WSTOPPED);
+
+        // Need this loop to avoid other signals interrupting the 'waitid' call
+        do { // NOLINT(cppcoreguidelines-avoid-do-while)
+            res = waitid(P_PID, static_cast<id_t>(worker.pid), &siginfo, WEXITED); // NOLINT(concurrency-mt-unsafe)
+        } while (res < 0 && errno == EINTR);
+
         if (res < 0) {
-            std::println(stderr, "clean workers: waitid failed: {}", std::strerror(errno));
+            std::println(stderr, "clean workers: waitid failed: {}", std::strerror(errno)); // NOLINT(concurrency-mt-unsafe)
         }
     }
 }
@@ -30,11 +35,12 @@ void Master::erase_worker(pid_t pid) {
     });
 }
 
+// Parent returns from this function, but newly created child never does
 pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &master) {
     ctx.notify_fork(boost::asio::execution_context::fork_prepare);
     pid_t const result = fork();
     if (result == -1) {
-        throw std::runtime_error(std::format("Failed to start a worker: {}", std::strerror(errno)));
+        throw std::runtime_error(std::format("Failed to start a worker: {}", std::strerror(errno))); // NOLINT(concurrency-mt-unsafe)
     }
     if (result == 0) {
         // Child
@@ -42,7 +48,7 @@ pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &master)
         signals.async_wait([&ctx](const boost::system::error_code &errc, [[maybe_unused]] int signal_n) {
             if (!errc) {
                 ctx.stop();
-                exit(128 + signal_n);
+                exit(128 + signal_n); // By convention exit status is 128 + signal number // NOLINT(concurrency-mt-unsafe)
             }
         });
 
@@ -51,7 +57,7 @@ pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &master)
         server.run();
         ctx.run(); // Child stays at this point while processing requests
 
-        exit(EXIT_SUCCESS);
+        exit(EXIT_SUCCESS); // NOLINT(concurrency-mt-unsafe)
     } else {
         // Parent
         ctx.notify_fork(boost::asio::execution_context::fork_parent);
@@ -87,7 +93,7 @@ void master_sig_handler(boost::asio::signal_set &s_set, boost::asio::io_context 
                 child_info.si_pid = 0; // clear this, so there won't be an inf. loop
             }
             if (res < 0) {
-                std::println(stderr, "waitid failed: {}", std::strerror(errno));
+                std::println(stderr, "waitid failed: {}", std::strerror(errno)); // NOLINT(concurrency-mt-unsafe)
             }
 
             s_set.async_wait([&](const boost::system::error_code &errc2, int sig_n2) {
@@ -96,7 +102,7 @@ void master_sig_handler(boost::asio::signal_set &s_set, boost::asio::io_context 
         } else {
             // At this point it should exit
             master.clear_workers();
-            exit(128 + sig_n);
+            exit(128 + sig_n); // By convention exit status is 128 + signal number // NOLINT(concurrency-mt-unsafe)
         }
     }
 }

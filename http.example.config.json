@@ -2,7 +2,7 @@
   "http": {
     "servers": {
       "google": {
-        "pass_tls_enabled": false,
+        "proxy_tls_enabled": false,
         "hosts": [
           {
             "host": "google.com",
@@ -11,7 +11,7 @@
         ]
       },
       "google-tls": {
-        "pass_tls_enabled": true,
+        "proxy_tls_enabled": true,
         "hosts": [
           {
             "host": "google.com",
@@ -37,10 +37,10 @@
         ]
       },
       "fuck-tls": {
-        "pass_tls_enabled": true,
-        "pass_tls_verify": false,
-        "pass_tls_cert_path": "../tls/certificate.crt",
-        "pass_tls_key_path": "../tls/private.key",
+        "proxy_tls_enabled": true,
+        "proxy_tls_verify": false,
+        "proxy_tls_cert_path": "../tls/certificate.crt",
+        "proxy_tls_key_path": "../tls/private.key",
         "hosts": [
           {
             "host": "127.0.0.1",
@@ -49,7 +49,7 @@
         ]
       },
       "vk": {
-        "pass_tls_enabled": false,
+        "proxy_tls_enabled": false,
         "hosts": [
           {
             "host": "vk.com",
@@ -58,8 +58,8 @@
         ]
       },
       "vk-tls": {
-        "pass_tls_enabled": true,
-        "pass_tls_verify": true,
+        "proxy_tls_enabled": true,
+        "proxy_tls_verify": true,
         "hosts": [
           {
             "host": "vk.com",
@@ -68,7 +68,7 @@
         ]
       },
       "httpbin": {
-        "pass_tls_enabled": true,
+        "proxy_tls_enabled": true,
         "hosts": [
           {
             "host": "httpbin.org",
@@ -78,7 +78,7 @@
       },
       "routing": {
         "balancing_algo": "sni",
-        "pass_tls_enabled": true,
+        "proxy_tls_enabled": true,
         "hosts": [
           {
             "host": "httpbin.org",
@@ -94,7 +94,7 @@
 
 
     "port": 8080,
-    "workers_num": 5,
+    "workers_num": 15,
     "headers": {
       "Host": "$host",
       "X-Real-IP": "$addr"
@@ -106,8 +106,8 @@
     "file_log": "/dev/stdout",
     "format_log": "URI: $request_uri, method $request_method, status: $status, user agent: $http_user_agent, $bytes_sent haha",
 
-    "pass_read_timeout": 1000,
-    "pass_send_timeout": 2000,
+    "proxy_read_timeout": 1000,
+    "proxy_send_timeout": 2000,
     "client_header_timeout": 5000,
 
     "connect_timeout": 60000,

@@ -15,23 +15,25 @@
 
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
-        throw std::runtime_error("Please, pass config path");
-    }
-
     argparse::ArgumentParser program{"kroxy"};
+    program.add_argument("-c", "--config")
+        .default_value(std::string{})
+        .required()
+        .help("Filepath to a config file");
+    program.add_argument("-m", "--multiprocess")
+        .flag()
+        .default_value(false);
 
     try {
-        // TODO: Make it a parameter in argv
-        constexpr bool IS_MULTIPROCESS = true;
+        program.parse_args(argc, argv);
+        const std::filesystem::path conf_path = program.get<std::string>("-c");
+        const bool is_multiprocess = program.get<bool>("-m");
+        const auto &cfg = Config::instance(conf_path);
 
         boost::asio::io_context ctx;
-        const std::filesystem::path path{argv[1]};
-        const auto &cfg = Config::instance(argv[1]);
         Server server{ctx};
 
-        if (IS_MULTIPROCESS) {
-
+        if (is_multiprocess) {
             Master master{};
             master.workers.reserve(cfg.workers_num());
             for (std::size_t i = 0; i < cfg.workers_num(); ++i) {
