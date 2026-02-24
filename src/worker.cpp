@@ -1,0 +1,102 @@
+//
+// Created by klewy on 2/24/26.
+//
+#include "worker.hpp"
+#include <csignal>
+#include <cstring>
+#include <unistd.h>
+#include <iostream>
+#include <sys/wait.h>
+
+
+void Master::clear_workers() {
+    for (const auto &worker: workers) {
+        int res = kill(worker.pid, SIGTERM);
+        if (res < 0) {
+            std::println(stderr, "kill failed: {}", std::strerror(errno));
+        }
+
+        siginfo_t siginfo{};
+        res = waitid(P_PID, static_cast<id_t>(worker.pid), &siginfo, WEXITED | WSTOPPED);
+        if (res < 0) {
+            std::println(stderr, "clean workers: waitid failed: {}", std::strerror(errno));
+        }
+    }
+}
+
+void Master::erase_worker(pid_t pid) {
+    std::erase_if(workers, [pid](const Worker &worker) {
+        return worker.pid == pid;
+    });
+}
+
+pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &master) {
+    ctx.notify_fork(boost::asio::execution_context::fork_prepare);
+    pid_t const result = fork();
+    if (result == -1) {
+        throw std::runtime_error(std::format("Failed to start a worker: {}", std::strerror(errno)));
+    }
+    if (result == 0) {
+        // Child
+        boost::asio::signal_set signals{ctx, SIGINT, SIGTERM};
+        signals.async_wait([&ctx](const boost::system::error_code &errc, [[maybe_unused]] int signal_n) {
+            if (!errc) {
+                ctx.stop();
+                exit(128 + signal_n);
+            }
+        });
+
+        ctx.notify_fork(boost::asio::execution_context::fork_child);
+        // Start processing requests
+        server.run();
+        ctx.run(); // Child stays at this point while processing requests
+
+        exit(EXIT_SUCCESS);
+    } else {
+        // Parent
+        ctx.notify_fork(boost::asio::execution_context::fork_parent);
+        master.workers.emplace_back(result);
+        return result;
+    }
+}
+
+void master_sig_handler(boost::asio::signal_set &s_set, boost::asio::io_context &ctx, Server &server,
+                               Master &master, const boost::system::error_code &errc,
+                               const int sig_n) {
+    if (!errc) {
+        if (sig_n == SIGCHLD) {
+            // Children died
+            int res{};
+            siginfo_t child_info{};
+            while ((res = waitid(P_ALL, 0, &child_info, WEXITED | WSTOPPED | WNOHANG)) == 0 && child_info.si_pid !=
+                   0) {
+                master.erase_worker(child_info.si_pid);
+
+                bool should_respawn = false;
+                if (child_info.si_code == CLD_EXITED) {
+                    if (child_info.si_status != 0) {
+                        should_respawn = true;
+                    }
+                } else if (child_info.si_code == CLD_KILLED || child_info.si_code == CLD_DUMPED) {
+                    should_respawn = true;
+                }
+                if (should_respawn) {
+                    spawn_worker(ctx, server, master);
+                }
+
+                child_info.si_pid = 0; // clear this, so there won't be an inf. loop
+            }
+            if (res < 0) {
+                std::println(stderr, "waitid failed: {}", std::strerror(errno));
+            }
+
+            s_set.async_wait([&](const boost::system::error_code &errc2, int sig_n2) {
+                master_sig_handler(s_set, ctx, server, master, errc2, sig_n2);
+            });
+        } else {
+            // At this point it should exit
+            master.clear_workers();
+            exit(128 + sig_n);
+        }
+    }
+}

@@ -101,16 +101,16 @@ struct CommonConfig {
     std::size_t proxy_send_timeout_ms{};
 
     // tls server stuff
-    std::optional<bool> tls_enabled{};
+    std::optional<bool> tls_enabled;
     std::optional<std::string> tls_cert_path;
     std::optional<std::string> tls_key_path;
-    std::optional<bool> tls_verify_client{};
+    std::optional<bool> tls_verify_client;
 
     // tls client stuff
-    std::optional<bool> proxy_tls_enabled{};
+    std::optional<bool> proxy_tls_enabled;
     std::optional<std::string> proxy_tls_cert_path;
     std::optional<std::string> proxy_tls_key_path;
-    std::optional<bool> proxy_tls_verify{};
+    std::optional<bool> proxy_tls_verify;
 
     std::optional<std::string> file_log;
     LogFormat format_log;

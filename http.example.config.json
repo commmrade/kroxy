@@ -113,6 +113,6 @@
     "connect_timeout": 60000,
     "resolve_timeout": 60000,
 
-    "pass_to": "httpbin"
+    "proxy_to": "httpbin"
   }
 }

@@ -18,6 +18,11 @@ FetchContent_Declare(
 )
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
+FetchContent_Declare(
+        argparse
+        GIT_REPOSITORY https://github.com/p-ranav/argparse.git
+)
+FetchContent_MakeAvailable(argparse)
 
 add_executable(kroxy src/main.cpp
         src/logger.cpp
@@ -28,15 +33,17 @@ add_executable(kroxy src/main.cpp
         src/upstream.hpp
         src/config.cpp
         src/httpsession.cpp
-        src/streamsession.cpp)
+        src/streamsession.cpp
+        src/worker.cpp
+        src/worker.hpp)
 
 target_include_directories(kroxy PRIVATE
-    ${LIBURING_INCLUDE_DIRS}
-    ${JSONCPP_INCLUDE_DIRS}   # заголовки json-cpp
+        ${LIBURING_INCLUDE_DIRS}
+        ${JSONCPP_INCLUDE_DIRS}   # заголовки json-cpp
 )
 
 target_compile_options(kroxy PRIVATE
-    $<$<COMPILE_LANGUAGE:CXX>:
+        $<$<COMPILE_LANGUAGE:CXX>:
         -Wall
         -Wextra
         -Wpedantic
@@ -50,15 +57,16 @@ target_compile_options(kroxy PRIVATE
         -Wnull-dereference
         -Wdouble-promotion
         -Wformat=2
-    >
+        >
 )
 
 target_link_libraries(kroxy PRIVATE
-    Boost::boost
-    OpenSSL::SSL
-    OpenSSL::Crypto
-    ${LIBURING_LIBRARIES}
-    ${JSONCPP_LIBRARIES}
+        Boost::boost
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        ${LIBURING_LIBRARIES}
+        ${JSONCPP_LIBRARIES}
+        argparse
 )
 
 target_include_directories(kroxy PRIVATE ${JSONCPP_INCLUDE_DIRS})
