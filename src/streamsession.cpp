@@ -39,7 +39,6 @@ void StreamSession::handle_service() {
 
     // Setting up service socket
     auto &cfg = Config::instance();
-    const auto& cfg_ = std::get<StreamConfig>(cfg.server_config);
 
     auto &upstream = cfg.get_upstream();
     auto [host, idx] = upstream.load_balancer->select_host(data);

@@ -122,7 +122,7 @@ int main(int argc, char **argv) {
 
     try {
         // TODO: Make it a parameter in argv
-        constexpr bool IS_MULTIPROCESS = true;
+        constexpr bool IS_MULTIPROCESS = false;
 
         boost::asio::io_context ctx;
         const std::filesystem::path path{argv[1]};
