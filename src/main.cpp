@@ -15,28 +15,28 @@
 
 struct Worker {
     pid_t pid;
-    int state; // dead, alive, whatever
 };
 
 struct Master {
     std::vector<Worker> workers;
 
-    void clean_workers() {
+    void clear_workers() {
         for (const auto &worker: workers) {
             int res = kill(worker.pid, SIGTERM);
             if (res < 0) {
-                perror("kill failed");
+                std::println(stderr, "kill failed: {}", std::strerror(errno));
             }
 
             siginfo_t siginfo{};
             res = waitid(P_PID, static_cast<id_t>(worker.pid), &siginfo, WEXITED | WSTOPPED);
             if (res < 0) {
-                perror("waitid failed");
+                std::println(stderr, "clean workers: waitid failed: {}", std::strerror(errno));
             }
         }
     }
+
     void erase_worker(pid_t pid) {
-        std::erase_if(workers, [pid](const Worker& worker) {
+        std::erase_if(workers, [pid](const Worker &worker) {
             return worker.pid == pid;
         });
     }
@@ -54,7 +54,7 @@ static pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &
         signals.async_wait([&ctx](const boost::system::error_code &errc, [[maybe_unused]] int signal_n) {
             if (!errc) {
                 ctx.stop();
-                _exit(EXIT_FAILURE);
+                exit(EXIT_FAILURE);
             }
         });
 
@@ -63,17 +63,18 @@ static pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &
         server.run();
         ctx.run(); // Child stays at this point while processing requests
 
-        _exit(EXIT_SUCCESS);
+        exit(EXIT_SUCCESS);
     } else {
         // Parent
         ctx.notify_fork(boost::asio::execution_context::fork_parent);
-        master.workers.emplace_back(result, -1);
+        master.workers.emplace_back(result);
         return result;
     }
 }
 
-static void master_sig_handler(boost::asio::signal_set &s_set, boost::asio::io_context& ctx, Server& server, Master &master, const boost::system::error_code &errc,
-                        int sig_n) {
+static void master_sig_handler(boost::asio::signal_set &s_set, boost::asio::io_context &ctx, Server &server,
+                               Master &master, const boost::system::error_code &errc,
+                               int sig_n) {
     if (!errc) {
         if (sig_n == SIGCHLD) {
             // Children died
@@ -95,16 +96,19 @@ static void master_sig_handler(boost::asio::signal_set &s_set, boost::asio::io_c
                     pid_t worker_pid = spawn_worker(ctx, server, master);
                     std::println("Respawned a worker, PID: {}", worker_pid);
                 }
+
+                child_info.si_pid = 0; // clear this, so there won't be an inf. loop
             }
             if (res < 0) {
-                perror("waitid for dead children failed");
+                std::println(stderr, "waitid to reap children failed: {}", std::strerror(errno));
             }
 
-            s_set.async_wait([&](const boost::system::error_code& errc2, int sig_n2) {
+            s_set.async_wait([&](const boost::system::error_code &errc2, int sig_n2) {
                 master_sig_handler(s_set, ctx, server, master, errc2, sig_n2);
             });
-        } else { // At this point it should exit
-            master.clean_workers();
+        } else {
+            // At this point it should exit
+            master.clear_workers();
             exit(EXIT_FAILURE);
         }
     }
@@ -136,7 +140,7 @@ int main(int argc, char **argv) {
             }
 
             boost::asio::signal_set s_set{ctx, SIGTERM, SIGINT, SIGCHLD};
-            s_set.async_wait([&](const boost::system::error_code& errc, int sig_n) {
+            s_set.async_wait([&](const boost::system::error_code &errc, int sig_n) {
                 master_sig_handler(s_set, ctx, server, master, errc, sig_n);
             });
 
