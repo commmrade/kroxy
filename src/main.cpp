@@ -54,7 +54,7 @@ static pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &
         signals.async_wait([&ctx](const boost::system::error_code &errc, [[maybe_unused]] int signal_n) {
             if (!errc) {
                 ctx.stop();
-                exit(EXIT_FAILURE);
+                exit(128 + signal_n);
             }
         });
 
@@ -109,7 +109,7 @@ static void master_sig_handler(boost::asio::signal_set &s_set, boost::asio::io_c
         } else {
             // At this point it should exit
             master.clear_workers();
-            exit(EXIT_FAILURE);
+            exit(128 + sig_n);
         }
     }
 }
@@ -145,6 +145,7 @@ int main(int argc, char **argv) {
             });
 
             ctx.run();
+            master.clear_workers();
         } else {
             server.run();
             ctx.run();
