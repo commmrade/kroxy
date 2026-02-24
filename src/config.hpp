@@ -10,20 +10,7 @@
 #include <unordered_set>
 #include <variant>
 #include <vector>
-
-class UpstreamSelector;
-
-struct Host {
-    std::string host;
-    unsigned short port{};
-};
-
-struct UpstreamOptions {
-    std::optional<bool> pass_tls_enabled;
-    std::optional<bool> pass_tls_verify; // verifies serv. cert
-    std::optional<std::string> pass_tls_cert_path;
-    std::optional<std::string> pass_tls_key_path;
-};
+#include "upstream.hpp"
 
 enum class LoadBalancingAlgo : std::uint8_t {
     ROUND_ROBIN,
@@ -33,15 +20,8 @@ enum class LoadBalancingAlgo : std::uint8_t {
     SNI,
 };
 
-struct Upstream {
-    std::shared_ptr<UpstreamSelector> load_balancer;
-
-    UpstreamOptions options;
-    std::vector<Host> hosts;
-};
-
 struct Servers {
-    std::unordered_map<std::string, Upstream> servers;
+    std::unordered_map<std::string, std::shared_ptr<Upstream>> servers;
 };
 
 struct LogFormat {
@@ -196,7 +176,7 @@ struct Config {
     }
 
     std::variant<StreamConfig, HttpConfig> server_config;
-    // Servers servers;
+    Servers servers;
 
     bool is_stream() const {
         return std::holds_alternative<StreamConfig>(server_config);
@@ -206,7 +186,7 @@ struct Config {
 
     unsigned short get_port() const;
 
-    const Upstream &get_upstream();
+    std::shared_ptr<Upstream> get_upstream();
 
     bool is_tls_enabled() const;
 

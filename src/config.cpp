@@ -3,7 +3,7 @@
 //
 #include "config.hpp"
 
-#include "selectors.hpp"
+#include "upstream.hpp"
 #include <print>
 
 std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format) {
@@ -119,31 +119,33 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
                 }
             }();
 
-            Upstream serv;
-            serv.options.pass_tls_enabled = pass_tls_enabled;
-            serv.options.pass_tls_verify = pass_tls_verify;
-            serv.options.pass_tls_cert_path = pass_tls_cert_path;
-            serv.options.pass_tls_key_path = pass_tls_key_path;
+            UpstreamOptions opts;
+            opts.pass_tls_enabled = pass_tls_enabled;
+            opts.pass_tls_verify = pass_tls_verify;
+            opts.pass_tls_cert_path = pass_tls_cert_path;
+            opts.pass_tls_key_path = pass_tls_key_path;
+
+            std::shared_ptr<Upstream> upstream;
 
             switch (algo) {
                 case LoadBalancingAlgo::ROUND_ROBIN: {
-                    serv.load_balancer = std::make_shared<RoundRobinSelector>();
+                    upstream = std::make_shared<RoundRobinUpstream>(std::move(opts));
                     break;
                 }
                 case LoadBalancingAlgo::FIRST: {
-                    serv.load_balancer = std::make_shared<FirstSelector>();
+                    upstream = std::make_shared<FirstUpstream>(std::move(opts));
                     break;
                 }
                 case LoadBalancingAlgo::LEAST_CONN: {
-                    serv.load_balancer = std::make_shared<LeastConnectionSelector>();
+                    upstream = std::make_shared<LeastConnectionUpstream>(std::move(opts));
                     break;
                 }
                 case LoadBalancingAlgo::HOST: {
-                    serv.load_balancer = std::make_shared<HostBasedSelector>();
+                    upstream = std::make_shared<HostBasedUpstream>(std::move(opts));
                     break;
                 }
                 case LoadBalancingAlgo::SNI: {
-                    serv.load_balancer = std::make_shared<SNIBasedSelector>();
+                    upstream = std::make_shared<SNIBasedUpstream>(std::move(opts));
                     break;
                 }
             }
@@ -151,13 +153,11 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
             for (const auto &host: block["hosts"]) {
                 auto host_str = host["host"].asString();
                 auto port = host["port"].asInt();
-                serv.hosts.emplace_back(host_str, port);
+                Host h{std::move(host_str), static_cast<unsigned short>(port)};
+                upstream->add_host(std::move(h));
             }
 
-            auto r = cfg.servers.servers.emplace(serv_block, std::move(serv));
-            // Since we keep a pointer to serv inside load balancer, it must be set here otherwise the pointer will be invalidated after std::move
-            r.first->second.load_balancer->set_upstream(r.first->second);
-            // I know this is bad but 1. idc 2. idk other way to do it. TODO: FIX
+            cfg.servers.servers.emplace(serv_block, std::move(upstream));
         }
     } else {
         throw std::runtime_error("Servers block is empty");
@@ -240,7 +240,7 @@ std::string Config::get_pass_to() const {
     }
 }
 
-const Upstream &Config::get_upstream() {
+std::shared_ptr<Upstream> Config::get_upstream() {
     if (std::holds_alternative<StreamConfig>(server_config)) {
         auto &cfg = std::get<StreamConfig>(server_config);
         return cfg.servers.servers[cfg.pass_to];

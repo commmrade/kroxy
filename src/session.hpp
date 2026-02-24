@@ -2,7 +2,7 @@
 #include "stream.hpp"
 #include <boost/asio/ip/tcp.hpp>
 #include "logger.hpp"
-#include "selectors.hpp"
+#include "upstream.hpp"
 
 class Stream;
 
@@ -17,8 +17,8 @@ public:
 
         if (session_idx_.has_value()) {
             auto &cfg = Config::instance();
-            auto &upstream = cfg.get_upstream();
-            upstream.load_balancer->disconnect_host(session_idx_.value());
+            auto upstream = cfg.get_upstream();
+            upstream->disconnect_host(session_idx_.value());
         }
     }
 

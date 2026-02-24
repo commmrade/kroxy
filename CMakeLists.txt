@@ -24,8 +24,8 @@ add_executable(kroxy src/main.cpp
         src/logger.hpp
         src/server.cpp
         src/server.hpp
-        src/selectors.cpp
-        src/selectors.hpp
+        src/upstream.cpp
+        src/upstream.hpp
         src/config.cpp
         src/httpsession.cpp
         src/streamsession.cpp)

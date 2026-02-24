@@ -4,7 +4,7 @@
 #include "httpsession.hpp"
 #include <boost/asio/experimental/parallel_group.hpp>
 
-#include "selectors.hpp"
+#include "upstream.hpp"
 
 HttpSession::HttpSession(boost::asio::io_context &ctx,
                          std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx,
@@ -92,6 +92,7 @@ void HttpSession::handle_timer(const boost::system::error_code &errc, WaitState 
             case WaitState::CLIENT_BODY:
             case WaitState::READ:
             case WaitState::SEND: {
+                // NOLINT
                 std::println("Timed out: waiting for client");
 
                 auto resp = std::make_shared<boost::beast::http::response<boost::beast::http::string_body> >();
@@ -182,9 +183,10 @@ void HttpSession::handle_service(
 
     // Setting up service socket
     auto &cfg = Config::instance();
-    auto &upstream = cfg.get_upstream();
+    auto upstream = cfg.get_upstream();
+    const auto upstream_options = upstream->options();
 
-    auto [host, idx] = upstream.load_balancer->select_host(data);
+    auto [host, idx] = upstream->select_host(data);
     if (host.host.empty()) {
         std::println("Host is empty, dropping session");
         return;
@@ -192,7 +194,7 @@ void HttpSession::handle_service(
 
     session_idx_ = idx;
 
-    bool const host_is_tls = upstream.options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
+    bool const host_is_tls = upstream_options.pass_tls_enabled.value_or(cfg_.pass_tls_enabled);
 
     auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(client_sock_.socket().get_executor());
 
@@ -202,15 +204,15 @@ void HttpSession::handle_service(
 
     auto service_ssl_ctx = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_client);
     service_ssl_ctx->set_default_verify_paths();
-    if (upstream.options.pass_tls_verify.value_or(cfg_.pass_tls_verify)) {
+    if (upstream_options.pass_tls_verify.value_or(cfg_.pass_tls_verify)) {
         service_ssl_ctx->set_verify_mode(boost::asio::ssl::verify_peer);
     }
-    if ((upstream.options.pass_tls_cert_path.has_value() && upstream.options.pass_tls_key_path.has_value()) || (
+    if ((upstream_options.pass_tls_cert_path.has_value() && upstream_options.pass_tls_key_path.has_value()) || (
             !cfg_.pass_tls_cert_path.empty() && !cfg_.pass_tls_key_path.empty())) {
         service_ssl_ctx->use_certificate_chain_file(
-            upstream.options.pass_tls_cert_path.value_or(cfg_.pass_tls_cert_path));
+            upstream_options.pass_tls_cert_path.value_or(cfg_.pass_tls_cert_path));
         service_ssl_ctx->use_private_key_file(
-            upstream.options.pass_tls_key_path.value_or(cfg_.pass_tls_key_path),
+            upstream_options.pass_tls_key_path.value_or(cfg_.pass_tls_key_path),
             boost::asio::ssl::context::file_format::pem);
     }
     // construct the service Stream (uses the rvalue ctor so is_tls_ is set correctly)
@@ -248,6 +250,7 @@ void HttpSession::handle_service(
                                                                if (self->service_sock_->is_tls()) {
                                                                    if (!self->service_sock_->
                                                                        set_sni(host.host)) {
+                                                                       // NOLINT
                                                                        std::println(
                                                                            "Warning: set_sni failed for host {}",
                                                                            host.host);

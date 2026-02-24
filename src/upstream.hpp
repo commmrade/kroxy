@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <vector>
 #include <ranges>
-#include "config.hpp"
 #include "boost/asio/ip/address.hpp"
 
 struct BalancerData {
@@ -19,22 +18,37 @@ struct BalancerData {
     boost::asio::ip::address client_address;
 };
 
-class UpstreamSelector {
+struct UpstreamOptions {
+    std::optional<bool> pass_tls_enabled;
+    std::optional<bool> pass_tls_verify; // verifies serv. cert
+    std::optional<std::string> pass_tls_cert_path;
+    std::optional<std::string> pass_tls_key_path;
+};
+
+struct Host {
+    std::string host;
+    unsigned short port{};
+};
+
+class Upstream {
 public:
-    UpstreamSelector() = default;
+    Upstream(UpstreamOptions&& options) : options_(std::move(options)) {}
 
-    virtual ~UpstreamSelector() = default;
+    virtual ~Upstream() = default;
 
-    UpstreamSelector(const UpstreamSelector &) = delete;
+    Upstream(const Upstream &) = delete;
 
-    UpstreamSelector &operator=(const UpstreamSelector &) = delete;
+    Upstream &operator=(const Upstream &) = delete;
 
-    UpstreamSelector(UpstreamSelector &&) = delete;
+    Upstream(Upstream &&) = default;
 
-    UpstreamSelector &operator=(UpstreamSelector &&) = delete;
+    Upstream &operator=(Upstream &&) = default;
 
-    void set_upstream(Upstream &serv) {
-        hosts_ = &serv.hosts;
+    void add_host(Host&& new_host) {
+        hosts_.emplace_back(std::move(new_host));
+    }
+    UpstreamOptions options() const {
+        return options_;
     }
 
     virtual std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) = 0;
@@ -42,15 +56,17 @@ public:
     virtual void disconnect_host([[maybe_unused]] std::size_t index) {
         // This might not be used by every algorithm (Round-robin f.e), but it may be used by least connection algo
     }
-
 protected:
-    std::vector<Host> *hosts_ = nullptr;
+    std::vector<Host> hosts_;
+    UpstreamOptions options_;
 };
 
-class FirstSelector : public UpstreamSelector {
+class FirstUpstream : public Upstream {
 public:
+    FirstUpstream(UpstreamOptions&& options) : Upstream(std::move(options)) {}
+
     std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) override {
-        return std::pair<Host, std::size_t>{*hosts_->begin(), 0};
+        return std::pair<Host, std::size_t>{*hosts_.begin(), 0};
     }
 };
 
@@ -63,33 +79,40 @@ struct std::hash<Host> {
     }
 };
 
-class LeastConnectionSelector : public UpstreamSelector {
+class LeastConnectionUpstream : public Upstream {
 public:
+    LeastConnectionUpstream(UpstreamOptions&& options) : Upstream(std::move(options)) {}
+
     std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) override;
 
     void disconnect_host([[maybe_unused]] std::size_t index) override;
 
     std::size_t best_index();
-
 private:
     std::vector<unsigned int> conns_;
 };
 
-class RoundRobinSelector : public UpstreamSelector {
+class RoundRobinUpstream : public Upstream {
 public:
+    RoundRobinUpstream(UpstreamOptions&& options) : Upstream(std::move(options)) {}
+
     std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) override;
 
 private:
     unsigned int cur_host_idx_{0};
 };
 
-class HostBasedSelector : public UpstreamSelector {
+class HostBasedUpstream : public Upstream {
 public:
+    HostBasedUpstream(UpstreamOptions&& options) : Upstream(std::move(options)) {}
+
     std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) override;
 };
 
-class SNIBasedSelector : public UpstreamSelector {
+class SNIBasedUpstream : public Upstream {
 public:
+    SNIBasedUpstream(UpstreamOptions&& options) : Upstream(std::move(options)) {}
+
     std::pair<Host, std::size_t> select_host([[maybe_unused]] const BalancerData &data) override;
 };
 

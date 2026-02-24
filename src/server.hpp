@@ -9,7 +9,7 @@
 
 #include "config.hpp"
 #include "httpsession.hpp"
-#include "selectors.hpp"
+#include "upstream.hpp"
 #include "session.hpp"
 #include "streamsession.hpp"
 

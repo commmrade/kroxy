@@ -5,7 +5,7 @@
 #include <boost/asio/experimental/parallel_group.hpp>
 #include "config.hpp"
 #include "logger.hpp"
-#include "selectors.hpp"
+#include "upstream.hpp"
 #include "session.hpp"
 
 class StreamSession : public Session {

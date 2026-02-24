@@ -7,7 +7,7 @@
 #include "session.hpp"
 #include <memory>
 #include "logger.hpp"
-#include "selectors.hpp"
+#include "upstream.hpp"
 #include "utils.hpp"
 
 class HttpSession : public Session {
