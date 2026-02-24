@@ -18,12 +18,10 @@ std::atomic<int> signal_n{0};
 
 struct Worker {
     pid_t pid;
-    int sock; // TODO: Communication socket
     int state; // dead, alive, whatever
 };
 
 struct Master {
-    int sock; // Socket via which master talks to workers
     std::vector<Worker> workers;
 };
 
@@ -44,6 +42,7 @@ static pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &
         signals.async_wait([&ctx](const boost::system::error_code& errc, [[maybe_unused]] int signal_n) {
             if (!errc) {
                 ctx.stop();
+                _exit(EXIT_FAILURE);
             }
         });
 
@@ -51,21 +50,28 @@ static pid_t spawn_worker(boost::asio::io_context &ctx, Server &server, Master &
         // Start processing requests
         server.run();
         ctx.run(); // Child stays at this point while processing requests
+
         _exit(EXIT_SUCCESS);
     } else {
         // Parent
         ctx.notify_fork(boost::asio::execution_context::fork_parent);
-        master.workers.emplace_back(result, -1, 0);
+        master.workers.emplace_back(result, -1);
         return result;
     }
 }
 
 static void clean_workers(Master &master) {
-    if (signal_n & (SIGTERM | SIGINT)) {
+    if (signal_n == SIGTERM || signal_n == SIGINT) {
         for (const auto &worker: master.workers) {
             int res = kill(worker.pid, SIGTERM);
             if (res < 0) {
-                perror("kill");
+                perror("kill failed");
+            }
+
+            siginfo_t siginfo{};
+            res = waitid(P_PID, static_cast<id_t>(worker.pid), &siginfo, WEXITED | WSTOPPED);
+            if (res < 0) {
+                perror("waitid failed");
             }
         }
     }
@@ -89,12 +95,6 @@ int main(int argc, char **argv) {
             Master master{};
             master.workers.reserve(cfg.workers_num());
 
-            // A cycle where workers are started
-            for (std::size_t i = 0; i < cfg.workers_num(); ++i) {
-                pid_t worker_pid = spawn_worker(ctx, server, master);
-                std::println("Spawned a worker, PID: {}", worker_pid);
-            }
-
             // A parent cycle
             struct sigaction action{};
             action.sa_handler = sig_handler;
@@ -107,11 +107,16 @@ int main(int argc, char **argv) {
                 throw std::runtime_error("Sigaction failed");
             }
 
+            // A cycle where workers are started
+            for (std::size_t i = 0; i < cfg.workers_num(); ++i) {
+                pid_t worker_pid = spawn_worker(ctx, server, master);
+                std::println("Spawned a worker, PID: {}", worker_pid);
+            }
+
             while (should_run) {
                 siginfo_t child_info{};
-                while ((res = waitid(P_ALL, 0, &child_info, WEXITED | WSTOPPED | WNOHANG)) == 0 && child_info.si_pid !=
-                       0) {
-                    // Handle all dead chld in a line
+                res = waitid(P_ALL, 0, &child_info, WEXITED | WSTOPPED);
+                if (res == 0) {
                     auto worker_iter = std::ranges::find_if(master.workers, [&child_info](const auto &worker) {
                         return worker.pid == child_info.si_pid;
                     });
@@ -119,10 +124,7 @@ int main(int argc, char **argv) {
                         master.workers.erase(worker_iter);
                     }
 
-
-                    // Respawn process. At this point if it's dead, it is probably a mistake
                     bool should_respawn = false;
-
                     if (child_info.si_code == CLD_EXITED) {
                         if (child_info.si_status != 0) {
                             should_respawn = true;
@@ -134,12 +136,9 @@ int main(int argc, char **argv) {
                         pid_t worker_pid = spawn_worker(ctx, server, master);
                         std::println("Respawned a worker, PID: {}", worker_pid);
                     }
+                } else if (res < 0 && errno != EINTR) {
+                    perror("child waitid failed:");
                 }
-                if (res < 0) {
-                    perror("waitid");
-                }
-
-                std::this_thread::sleep_for(std::chrono::milliseconds(200)); // To prevent busy looping
             }
 
             // If we were interrupted by a signal, clean all processes
