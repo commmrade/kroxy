@@ -31,7 +31,7 @@ std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format)
     return result;
 }
 
-void parse_common(CommonConfig& cfg, const Json::Value& serv_obj) {
+void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
     if (serv_obj.empty()) {
         throw std::runtime_error("Empty server object");
     }
@@ -55,7 +55,6 @@ void parse_common(CommonConfig& cfg, const Json::Value& serv_obj) {
 
     cfg.pass_read_timeout_ms = serv_obj.get("pass_read_timeout", DEFAULT_PASS_READ_TIMEOUT).asUInt64();
     cfg.pass_send_timeout_ms = serv_obj.get("pass_send_timeout", DEFAULT_PASS_SEND_TIMEOUT).asUInt64();
-
 
 
     cfg.tls_enabled = serv_obj.get("tls_enabled", false).asBool();

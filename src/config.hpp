@@ -181,7 +181,9 @@ struct Config;
 std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format);
 
 HttpConfig parse_http(const Json::Value &http_obj);
-void parse_common(CommonConfig& cfg, const Json::Value& serv_obj);
+
+void parse_common(CommonConfig &cfg, const Json::Value &serv_obj);
+
 StreamConfig parse_stream(const Json::Value &stream_obj);
 
 Config parse_config(const std::filesystem::path &path);

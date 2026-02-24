@@ -91,7 +91,6 @@ public:
     }
 
 
-
     template<typename CompletionToken>
     auto async_handshake(boost::asio::ssl::stream_base::handshake_type type, CompletionToken &&token) {
         if (is_tls()) {
@@ -118,10 +117,10 @@ public:
     bool set_sni(const std::string_view hostname) {
         assert(is_tls());
         auto &ref = get_tls_stream();
-        #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wold-style-cast"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
         const auto ret = SSL_set_tlsext_host_name(ref.native_handle(), hostname.data());
-        #pragma GCC diagnostic pop
+#pragma GCC diagnostic pop
         if (!ret) {
             std::print("SSL_set_tlsext_host_name failed");
             return false;
@@ -148,8 +147,9 @@ public:
         return stream_;
     }
 
-    Stream(boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_ctx, bool is_tls) : ssl_ctx_(std::move(ssl_ctx)), is_tls_(is_tls),
-        stream_{ctx, *ssl_ctx_} {
+    Stream(boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_ctx,
+           bool is_tls) : ssl_ctx_(std::move(ssl_ctx)), is_tls_(is_tls),
+                          stream_{ctx, *ssl_ctx_} {
     }
 
     Stream(const Stream &) = delete;

@@ -4,7 +4,9 @@
 
 #include "server.hpp"
 
-Server::Server(boost::asio::io_context &ctx) : ctx_(ctx), acceptor_(ctx), ssl_ctx_(std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_server)) {
+Server::Server(boost::asio::io_context &ctx) : ctx_(ctx), acceptor_(ctx),
+                                               ssl_ctx_(std::make_shared<boost::asio::ssl::context>(
+                                                   boost::asio::ssl::context::tls_server)) {
     auto &cfg_ = Config::instance();
     const auto port = cfg_.get_port();
     setup_socket(ctx, port);
