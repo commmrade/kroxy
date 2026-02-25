@@ -20,6 +20,24 @@ void HttpSession::run() {
     do_upstream();
 }
 
+void HttpSession::process_headers(boost::beast::http::request<boost::beast::http::buffer_body> &msg) {
+    for (const auto &[header_name, header_value]: cfg_.headers) {
+        if (const auto addr_pos = header_value.find(ADDR_HEADER_VAR); addr_pos != std::string::npos) {
+            auto client_addr = client_sock_.socket().remote_endpoint().address().to_string();
+            auto fin_val = header_value;
+            fin_val.replace(addr_pos, ADDR_HEADER_VAR.size(), client_addr);
+            msg.set(header_name, fin_val);
+        } else if (const auto host_pos = header_value.find(HOST_HEADER_VAR); host_pos != std::string::npos) {
+            auto fin_val = header_value;
+            fin_val.replace(host_pos, HOST_HEADER_VAR.size(), current_host_.host);
+            msg.set(header_name, fin_val);
+        } else {
+            msg.set(header_name, header_value);
+        }
+    }
+}
+
+
 void HttpSession::check_log() {
     if (bytes_sent_.has_value() && start_time_.has_value() && request_uri_.has_value() && http_status_.has_value()
         && user_agent_.has_value() && request_method_.has_value()) {
@@ -190,7 +208,7 @@ void HttpSession::handle_service(
         std::println(stderr, "Host is empty, dropping session");
         return;
     }
-
+    current_host_ = host;
     session_idx_ = idx;
 
     bool const host_is_tls = upstream_options.proxy_tls_enabled.value_or(cfg_.proxy_tls_enabled.value_or(false));
@@ -272,6 +290,8 @@ void HttpSession::handle_service(
                                                                                self->upstream_timer_,
                                                                                WaitState::PROXY_SEND,
                                                                                self->cfg_.proxy_send_timeout_ms);
+                                                                           self->process_headers(
+                                                                               self->request_p_->get());
                                                                            self->service_sock_->
                                                                                    async_write_header(
                                                                                        *self->request_s_,
@@ -293,6 +313,8 @@ void HttpSession::handle_service(
                                                                    self->prepare_timer(
                                                                        self->upstream_timer_, WaitState::PROXY_SEND,
                                                                        self->cfg_.proxy_send_timeout_ms);
+                                                                   self->process_headers(
+                                                                               self->request_p_->get());
                                                                    self->service_sock_->async_write_header(
                                                                        *self->request_s_,
                                                                        [self](
@@ -318,10 +340,11 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
             user_agent_.emplace();
         }
 
-        process_headers(msg);
         request_s_.emplace(msg);
 
         if (service_sock_) {
+            process_headers(msg); // If it isn't a first request, process headers here, since current_host_ is already set, otherwise process headers inside handle_service()
+
             prepare_timer(upstream_timer_, WaitState::PROXY_SEND, cfg_.proxy_send_timeout_ms);
             service_sock_->async_write_header(*request_s_,
                                               [self = shared_from_base<HttpSession>()](

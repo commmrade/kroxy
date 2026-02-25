@@ -12,11 +12,7 @@
 
 class HttpSession : public Session {
 private:
-    template<bool isRequest, class Body>
-    void process_headers(boost::beast::http::message<isRequest, Body> &msg) {
-        // TODO: real implementation, for now its mock
-        msg.set(boost::beast::http::field::user_agent, "kroxy/0.1 (klewy)");
-    }
+    void process_headers(boost::beast::http::request<boost::beast::http::buffer_body> &msg);
 
     // client to service
     void do_read_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf);
@@ -83,6 +79,9 @@ private:
     std::array<char, BUF_SIZE> ds_buf_{};
     State downstream_state_{};
 
+    // Headers stuff
+    Host current_host_;
+
     // Logging stuff
     std::optional<std::size_t> bytes_sent_{};
     std::optional<std::chrono::time_point<std::chrono::system_clock> > start_time_;
@@ -91,3 +90,6 @@ private:
     std::optional<unsigned int> http_status_{};
     std::optional<std::string> user_agent_;
 };
+
+static constexpr std::string_view ADDR_HEADER_VAR = "$addr";
+static constexpr std::string_view HOST_HEADER_VAR = "$host";
