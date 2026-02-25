@@ -162,6 +162,4 @@ include(GNUInstallDirs)
 install(TARGETS kroxy
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-
-# Optional: man pages, config examples, systemd units, etc.
-# install(FILES ... DESTINATION ${CMAKE_INSTALL_DATADIR}/kroxy)
+install(FILES conf/kroxy.conf.json DESTINATION ${CMAKE_INSTALL_DATADIR}/kroxy/conf)
