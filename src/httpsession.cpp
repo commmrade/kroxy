@@ -92,8 +92,7 @@ void HttpSession::handle_timer(const boost::system::error_code &errc, WaitState 
             case WaitState::CLIENT_BODY:
             case WaitState::READ:
             case WaitState::SEND: {
-                // NOLINT
-                std::println("Timed out: waiting for client");
+                std::println(stderr, "Timed out: waiting for client"); // NOLINT
 
                 auto resp = std::make_shared<boost::beast::http::response<boost::beast::http::string_body> >();
                 resp->result(boost::beast::http::status::request_timeout);
@@ -126,7 +125,7 @@ void HttpSession::handle_timer(const boost::system::error_code &errc, WaitState 
             case WaitState::RESOLVE:
             case WaitState::PROXY_READ:
             case WaitState::PROXY_SEND: {
-                std::println("Timed out: waiting for service");
+                std::println(stderr, "Timed out: waiting for service");
 
                 auto resp = std::make_shared<boost::beast::http::response<boost::beast::http::string_body> >();
                 resp->result(boost::beast::http::status::gateway_timeout);
@@ -155,14 +154,14 @@ void HttpSession::handle_timer(const boost::system::error_code &errc, WaitState 
                 break;
             }
             default: {
-                std::println("Timed out for unknown reason: {}", static_cast<int>(state));
+                std::println(stderr, "Timed out for unknown reason: {}", static_cast<int>(state));
                 close_ses();
                 break;
             }
         }
     } else {
         if (boost::asio::error::operation_aborted != errc) {
-            std::println("Error handling timer: {}", errc.message());
+            std::println(stderr, "Error handling timer: {}", errc.message());
         }
     }
 }
@@ -188,7 +187,7 @@ void HttpSession::handle_service(
 
     auto [host, idx] = upstream->select_host(data);
     if (host.host.empty()) {
-        std::println("Host is empty, dropping session");
+        std::println(stderr, "Host is empty, dropping session");
         return;
     }
 
@@ -226,7 +225,7 @@ void HttpSession::handle_service(
                         const boost::system::error_code &errc,
                         const boost::asio::ip::tcp::resolver::results_type &eps) {
                                 if (errc) {
-                                    std::println("Resolving failed: {}", errc.message());
+                                    std::println(stderr, "Resolving failed: {}", errc.message());
                                     self->close_ses();
                                     return;
                                 }
@@ -241,7 +240,7 @@ void HttpSession::handle_service(
                                                                         boost::asio::ip::tcp::endpoint &endpoint) {
                                                                if (errc2) {
                                                                    std::println(
-                                                                       "Connecting to service failed: {}",
+                                                                       stderr, "Connecting to service failed: {}",
                                                                        errc2.message());
                                                                    self->close_ses();
                                                                    return;
@@ -251,7 +250,7 @@ void HttpSession::handle_service(
                                                                    if (!self->service_sock_->
                                                                        set_sni(host.host)) {
                                                                        // NOLINT
-                                                                       std::println(
+                                                                       std::println(stderr,
                                                                            "Warning: set_sni failed for host {}",
                                                                            host.host);
                                                                        // not fatal necessarily; continue to handshake
@@ -262,7 +261,7 @@ void HttpSession::handle_service(
                                                                        [self](
                                                                    const boost::system::error_code &errc3) {
                                                                            if (errc3) {
-                                                                               std::println(
+                                                                               std::println(stderr,
                                                                                    "Service TLS handshake failed: {}",
                                                                                    errc3.message());
                                                                                self->close_ses();
@@ -346,7 +345,9 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
                 service_sock_->shutdown();
             }
         } else {
-            std::println("Reading client header: {}", errc.message());
+            if (boost::asio::error::operation_aborted != errc) {
+                std::println(stderr, "Reading client header: {}", errc.message());
+            }
             close_ses(); // Hard error
         }
     }
@@ -368,7 +369,9 @@ void HttpSession::do_write_service_header(const boost::system::error_code &errc,
         }
         do_upstream();
     } else {
-        std::println("Upstream write header error: {}", errc.message());
+        if (boost::asio::error::operation_aborted != errc) {
+            std::println(stderr, "Upstream write header error: {}", errc.message());
+        }
         close_ses();
     }
 }
@@ -395,7 +398,9 @@ void HttpSession::do_read_client_body(const boost::system::error_code &errc, [[m
                 service_sock_->shutdown();
             }
         } else {
-            std::println("Reading client body: {}", errc.message());
+            if (boost::asio::error::operation_aborted != errc) {
+                std::println(stderr, "Reading client body: {}", errc.message());
+            }
             close_ses(); // Hard error
         }
     }
@@ -416,7 +421,9 @@ void HttpSession::do_write_service_body(const boost::system::error_code &errc, [
 
         do_upstream();
     } else {
-        std::println("Write service body failed: {}", errc.message());
+        if (boost::asio::error::operation_aborted != errc) {
+            std::println(stderr, "Write service body failed: {}", errc.message());
+        }
         close_ses();
     }
 }
@@ -479,7 +486,9 @@ void HttpSession::do_read_service_header(const boost::system::error_code &errc, 
                 client_sock_.shutdown();
             }
         } else {
-            std::println("Reading service header: {}", errc.message());
+            if (boost::asio::error::operation_aborted != errc) {
+                std::println(stderr, "Reading service header: {}", errc.message());
+            }
             close_ses(); // Hard error
         }
     }
@@ -500,7 +509,9 @@ void HttpSession::do_write_client_header(const boost::system::error_code &errc, 
         }
         do_downstream();
     } else {
-        std::println("Downstream write header error: {}", errc.message());
+        if (boost::asio::error::operation_aborted != errc) {
+            std::println(stderr, "Downstream write header error: {}", errc.message());
+        }
         close_ses();
     }
 }
@@ -527,7 +538,9 @@ void HttpSession::do_read_service_body(const boost::system::error_code &errc, [[
                 client_sock_.shutdown();
             }
         } else {
-            std::println("Reading service body: {}", errc.message());
+            if (boost::asio::error::operation_aborted != errc) {
+                std::println(stderr, "Reading service body: {}", errc.message());
+            }
             close_ses(); // Hard error
         }
     }
@@ -547,7 +560,9 @@ void HttpSession::do_write_client_body(const boost::system::error_code &errc, [[
 
         do_downstream();
     } else {
-        std::println("Write client body failed: {}", errc.message());
+        if (boost::asio::error::operation_aborted != errc) {
+            std::println(stderr, "Write client body failed: {}", errc.message());
+        }
         close_ses();
     }
 }

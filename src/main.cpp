@@ -17,7 +17,6 @@
 int main(int argc, char **argv) {
     argparse::ArgumentParser program{"kroxy"};
     program.add_argument("-c", "--config")
-        .default_value(std::string{})
         .required()
         .help("Filepath to a config file");
     program.add_argument("-m", "--multiprocess")
@@ -53,7 +52,7 @@ int main(int argc, char **argv) {
             ctx.run();
         }
     } catch (const std::exception &ex) {
-        std::println("Something went wrong: {}", ex.what());
+        std::println(stderr, "Something went wrong: {}", ex.what());
         return EXIT_FAILURE;
     }
 

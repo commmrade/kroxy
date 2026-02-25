@@ -21,11 +21,11 @@ StreamSession::~StreamSession() {
 
 void StreamSession::handle_timer(const boost::system::error_code &errc, WaitState state) {
     if (!errc) {
-        std::println("Timed out: {}", static_cast<int>(state));
+        std::println(stderr, "Timed out: {}", static_cast<int>(state));
         close_ses(); // No other way to handle this
     } else {
         if (boost::asio::error::operation_aborted != errc) {
-            std::println("Error handling timer: {}", errc.message());
+            std::println(stderr, "Error handling timer: {}", errc.message());
         }
     }
 }
@@ -45,7 +45,7 @@ void StreamSession::handle_service() {
     const auto upstream_options = upstream->options();
     auto [host, idx] = upstream->select_host(data);
     if (host.host.empty()) {
-        std::println("Host is empty, dropping session");
+        std::println(stderr, "Host is empty, dropping session");
         return;
     }
     session_idx_ = idx;
@@ -80,7 +80,7 @@ void StreamSession::handle_service() {
                         const boost::system::error_code &errc,
                         const boost::asio::ip::tcp::resolver::results_type &eps) {
                                 if (errc) {
-                                    std::println("Resolving failed: {}", errc.message());
+                                    std::println(stderr, "Resolving failed: {}", errc.message());
                                     self->close_ses();
                                     return;
                                 }
@@ -94,7 +94,7 @@ void StreamSession::handle_service() {
                                                                         boost::asio::ip::tcp::endpoint &endpoint) {
                                                                if (errc2) {
                                                                    std::println(
-                                                                       "Connecting to service failed: {}",
+                                                                       stderr, "Connecting to service failed: {}",
                                                                        errc2.message());
                                                                    self->close_ses();
                                                                    return;
@@ -104,7 +104,7 @@ void StreamSession::handle_service() {
                                                                if (self->service_sock_->is_tls()) {
                                                                    if (!self->service_sock_->set_sni(host.host)) {
                                                                        // NOLINT
-                                                                       std::println(
+                                                                       std::println(stderr,
                                                                            "Warning: set_sni failed for host {}",
                                                                            host.host);
                                                                    }
@@ -113,7 +113,7 @@ void StreamSession::handle_service() {
                                                                        boost::asio::ssl::stream_base::client,
                                                                        [self](const boost::system::error_code &errc3) {
                                                                            if (errc3) {
-                                                                               std::println(
+                                                                               std::println(stderr,
                                                                                    "Service TLS handshake failed: {}",
                                                                                    errc3.message());
                                                                                self->close_ses();
@@ -194,7 +194,9 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
             }
             // After this function is done and we got everything from the other host, session will die by itself
         } else {
-            std::println("Reading client error: {}", errc.message());
+            if (boost::asio::error::operation_aborted != errc) {
+                std::println(stderr, "Reading client error: {}", errc.message());
+            }
             close_ses(); // Hard error
         }
     }
@@ -209,7 +211,9 @@ void StreamSession::do_write_service(const boost::system::error_code &errc, std:
 
         do_upstream();
     } else {
-        std::println("Service writing error: {}", errc.message());
+        if (boost::asio::error::operation_aborted != errc) {
+            std::println(stderr, "Service writing error: {}", errc.message());
+        }
         close_ses();
     }
 }
@@ -247,7 +251,9 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
                 client_sock_.shutdown();
             }
         } else {
-            std::println("Reading service error: {}", errc.message());
+            if (boost::asio::error::operation_aborted != errc) {
+                std::println(stderr, "Reading service error: {}", errc.message());
+            }
             close_ses(); // Hard error
         }
     }
@@ -262,7 +268,9 @@ void StreamSession::do_write_client(const boost::system::error_code &errc, std::
 
         do_downstream();
     } else {
-        std::println("Client writing error: {}", errc.message());
+        if (boost::asio::error::operation_aborted != errc) {
+            std::println(stderr, "Client writing error: {}", errc.message());
+        }
         close_ses();
     }
 }
