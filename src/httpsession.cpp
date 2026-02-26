@@ -122,21 +122,7 @@ void HttpSession::handle_timer(const boost::system::error_code &errc, WaitState 
             case WaitState::SEND: {
                 std::println(stderr, "Timed out: waiting for client"); // NOLINT
 
-                auto resp = std::make_shared<boost::beast::http::response<boost::beast::http::string_body> >();
-                resp->result(boost::beast::http::status::request_timeout);
-                resp->set(boost::beast::http::field::content_type, "text/html");
-                resp->set(boost::beast::http::field::connection, "close");
-                resp->body() =
-                        "<!DOCTYPE html>"
-                        "<html>"
-                        "<head><title>408 Request Timeout</title></head>"
-                        "<body>"
-                        "<h1>408 Request Timeout</h1>"
-                        "<p>The server timed out waiting for the request.</p>"
-                        "</body>"
-                        "</html>";
-                resp->prepare_payload();
-
+                auto resp = make_timeout_response(TimeoutType::CLIENT);
                 auto resp_ser = std::make_shared<boost::beast::http::response_serializer<
                     boost::beast::http::string_body> >(*resp);
 
@@ -155,21 +141,7 @@ void HttpSession::handle_timer(const boost::system::error_code &errc, WaitState 
             case WaitState::PROXY_SEND: {
                 std::println(stderr, "Timed out: waiting for service");
 
-                auto resp = std::make_shared<boost::beast::http::response<boost::beast::http::string_body> >();
-                resp->result(boost::beast::http::status::gateway_timeout);
-                resp->set(boost::beast::http::field::content_type, "text/html");
-                resp->set(boost::beast::http::field::connection, "close");
-                resp->body() =
-                        "<!DOCTYPE html>"
-                        "<html>"
-                        "<head><title>504 Gateway Timeout</title></head>"
-                        "<body>"
-                        "<h1>504 Gateway Timeout</h1>"
-                        "<p>The server timed out waiting for the request.</p>"
-                        "</body>"
-                        "</html>";
-                resp->prepare_payload();
-
+                auto resp = make_timeout_response(TimeoutType::SERVICE);
                 auto resp_ser = std::make_shared<boost::beast::http::response_serializer<
                     boost::beast::http::string_body> >(*resp);
                 prepare_timer(downstream_timer_, WaitState::UNKNOWN, TIMER_HANDLER_TIMEOUT);
@@ -631,4 +603,43 @@ void HttpSession::do_downstream() {
             break;
         }
     }
+}
+// HttpSession end
+
+std::shared_ptr<boost::beast::http::response<boost::beast::http::string_body>> make_timeout_response(TimeoutType resp_kind) {
+    auto resp = std::make_shared<boost::beast::http::response<boost::beast::http::string_body> >();
+    resp->set(boost::beast::http::field::content_type, "text/html");
+    resp->set(boost::beast::http::field::connection, "close");
+
+    switch (resp_kind) {
+        case TimeoutType::CLIENT: {
+            resp->result(boost::beast::http::status::request_timeout);
+            resp->body() =
+                    "<!DOCTYPE html>"
+                    "<html>"
+                    "<head><title>408 Request Timeout</title></head>"
+                    "<body>"
+                    "<h1>408 Request Timeout</h1>"
+                    "<p>The server timed out waiting for the request.</p>"
+                    "</body>"
+                    "</html>";
+            break;
+        }
+        case TimeoutType::SERVICE: {
+            resp->result(boost::beast::http::status::gateway_timeout);
+            resp->body() =
+                    "<!DOCTYPE html>"
+                    "<html>"
+                    "<head><title>504 Gateway Timeout</title></head>"
+                    "<body>"
+                    "<h1>504 Gateway Timeout</h1>"
+                    "<p>The server timed out waiting for the request.</p>"
+                    "</body>"
+                    "</html>";
+            break;
+        }
+    }
+    resp->prepare_payload();
+
+    return resp;
 }

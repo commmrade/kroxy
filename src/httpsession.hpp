@@ -95,3 +95,10 @@ private:
 
 static constexpr std::string_view ADDR_HEADER_VAR = "$addr";
 static constexpr std::string_view HOST_HEADER_VAR = "$host";
+
+enum class TimeoutType : std::uint8_t {
+    CLIENT,
+    SERVICE
+};
+
+std::shared_ptr<boost::beast::http::response<boost::beast::http::string_body>> make_timeout_response(TimeoutType resp_kind);
