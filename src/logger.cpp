@@ -3,6 +3,7 @@
 //
 
 #include "logger.hpp"
+#include <chrono>
 
 Logger::Logger(const std::filesystem::path &path) {
     m_file = open(path.c_str(), O_APPEND | O_CREAT | O_WRONLY, 0644);
@@ -22,10 +23,8 @@ void replace_variable(std::string &log_msg, LogFormat::Variable var, const std::
 }
 
 void Logger::write(std::string_view msg) {
-    std::string final_msg;
-    final_msg.reserve(msg.size() + 1);
-    final_msg += msg;
-    final_msg += '\n';
+    auto time = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    std::string final_msg = std::format("[{:%Y-%m-%d %H:%M:%S}]: {}\n", time, msg);
 
     ::write(m_file, final_msg.c_str(), final_msg.size()); // Kernel syncs these writes
 }
