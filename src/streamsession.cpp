@@ -27,11 +27,11 @@ void StreamSession::check_log() {
 
 void StreamSession::handle_timer(const boost::system::error_code &errc, WaitState state) {
     if (!errc) {
-        std::println(stderr, "Timed out: {}", static_cast<int>(state));
+        spdlog::error("Timed out: {}", static_cast<int>(state));
         close_ses(); // No other way to handle this
     } else {
         if (boost::asio::error::operation_aborted != errc) {
-            std::println(stderr, "Error handling timer: {}", errc.message());
+            spdlog::error("Error handling timer: {}", errc.message());
         }
     }
 }
@@ -51,7 +51,7 @@ void StreamSession::handle_service() {
     const auto upstream_options = upstream->options();
     auto [host, idx] = upstream->select_host(data);
     if (host.host.empty()) {
-        std::println(stderr, "Host is empty, dropping session");
+        spdlog::error("Host is empty, dropping session");
         return;
     }
     session_idx_ = idx;
@@ -86,7 +86,7 @@ void StreamSession::handle_service() {
                         const boost::system::error_code &errc,
                         const boost::asio::ip::tcp::resolver::results_type &eps) {
                                 if (errc) {
-                                    std::println(stderr, "Resolving failed: {}", errc.message());
+                                    spdlog::error("Resolving failed: {}", errc.message());
                                     self->close_ses();
                                     return;
                                 }
@@ -99,8 +99,7 @@ void StreamSession::handle_service() {
                                                                         [[maybe_unused]] const
                                                                         boost::asio::ip::tcp::endpoint &endpoint) {
                                                                if (errc2) {
-                                                                   std::println(
-                                                                       stderr, "Connecting to service failed: {}",
+                                                                   spdlog::error("Connecting to service failed: {}",
                                                                        errc2.message());
                                                                    self->close_ses();
                                                                    return;
@@ -110,7 +109,7 @@ void StreamSession::handle_service() {
                                                                if (self->service_sock_->is_tls()) {
                                                                    if (!self->service_sock_->set_sni(host.host)) {
                                                                        // NOLINT
-                                                                       std::println(stderr,
+                                                                       spdlog::error(
                                                                            "Warning: set_sni failed for host {}",
                                                                            host.host);
                                                                    }
@@ -119,7 +118,7 @@ void StreamSession::handle_service() {
                                                                        boost::asio::ssl::stream_base::client,
                                                                        [self](const boost::system::error_code &errc3) {
                                                                            if (errc3) {
-                                                                               std::println(stderr,
+                                                                               spdlog::error(
                                                                                    "Service TLS handshake failed: {}",
                                                                                    errc3.message());
                                                                                self->close_ses();
@@ -128,7 +127,9 @@ void StreamSession::handle_service() {
 
                                                                            self->start_time_ =
                                                                                    std::chrono::high_resolution_clock::now();
-                                                                           self->client_addr_.emplace(self->client_sock_.socket().remote_endpoint().address());
+                                                                           self->client_addr_.emplace(
+                                                                               self->client_sock_.socket().
+                                                                               remote_endpoint().address());
                                                                            self->bytes_sent_us_.emplace(0);
                                                                            self->bytes_sent_ds_.emplace(0);
 
@@ -139,7 +140,9 @@ void StreamSession::handle_service() {
                                                                } else {
                                                                    self->start_time_ =
                                                                            std::chrono::high_resolution_clock::now();
-                                                                   self->client_addr_.emplace(self->client_sock_.socket().remote_endpoint().address());
+                                                                   self->client_addr_.emplace(
+                                                                       self->client_sock_.socket().remote_endpoint().
+                                                                       address());
                                                                    self->bytes_sent_us_.emplace(0);
                                                                    self->bytes_sent_ds_.emplace(0);
 
@@ -162,7 +165,7 @@ void StreamSession::log() {
             switch (var) {
                 case LogFormat::Variable::CLIENT_ADDR: {
                     replace_variable(log_msg, var,
-                        client_addr_.value().to_string());
+                                     client_addr_.value().to_string());
                     break;
                 }
                 case LogFormat::Variable::BYTES_SENT_UPSTREAM: {
@@ -217,7 +220,7 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
             // After this function is done and we got everything from the other host, session will die by itself
         } else {
             if (boost::asio::error::operation_aborted != errc) {
-                std::println(stderr, "Reading client error: {}", errc.message());
+                spdlog::error("Reading client error: {}", errc.message());
             }
             close_ses(); // Hard error
         }
@@ -234,7 +237,7 @@ void StreamSession::do_write_service(const boost::system::error_code &errc, std:
         do_upstream();
     } else {
         if (boost::asio::error::operation_aborted != errc) {
-            std::println(stderr, "Service writing error: {}", errc.message());
+            spdlog::error("Service writing error: {}", errc.message());
         }
         close_ses();
     }
@@ -274,7 +277,7 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
             }
         } else {
             if (boost::asio::error::operation_aborted != errc) {
-                std::println(stderr, "Reading service error: {}", errc.message());
+                spdlog::error("Reading service error: {}", errc.message());
             }
             close_ses(); // Hard error
         }
@@ -291,7 +294,7 @@ void StreamSession::do_write_client(const boost::system::error_code &errc, std::
         do_downstream();
     } else {
         if (boost::asio::error::operation_aborted != errc) {
-            std::println(stderr, "Client writing error: {}", errc.message());
+            spdlog::error("Client writing error: {}", errc.message());
         }
         close_ses();
     }

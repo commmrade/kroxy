@@ -30,6 +30,7 @@ option(KROXY_SANITIZERS   "Enable address + undefined behavior sanitizers (debug
 find_package(Boost CONFIG)   # most projects only need headers
 find_package(OpenSSL REQUIRED)
 find_package(PkgConfig REQUIRED)
+find_package(spdlog REQUIRED)
 
 pkg_check_modules(LIBURING REQUIRED IMPORTED_TARGET liburing>=2.5)
 pkg_check_modules(JSONCPP  REQUIRED IMPORTED_TARGET jsoncpp>=1.9)
@@ -94,6 +95,7 @@ target_link_libraries(kroxy
         PkgConfig::LIBURING
         PkgConfig::JSONCPP
         argparse::argparse
+        spdlog::spdlog
 )
 
 # ── Compiler warnings ────────────────────────────────────────────────────────────

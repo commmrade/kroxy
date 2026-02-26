@@ -4,6 +4,7 @@
 #include <boost/beast.hpp>
 #include <variant>
 #include <print>
+#include <spdlog/spdlog.h>
 
 namespace details {
     class initiate_async_handshake_empty {
@@ -122,7 +123,7 @@ public:
         const auto ret = SSL_set_tlsext_host_name(ref.native_handle(), hostname.data());
 #pragma GCC diagnostic pop
         if (!ret) {
-            std::println(stderr, "SSL_set_tlsext_host_name failed");
+            spdlog::error("SSL_set_tlsext_host_name failed");
             return false;
         }
         return true;

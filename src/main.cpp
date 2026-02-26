@@ -12,9 +12,12 @@
 #include "server.hpp"
 #include <argparse/argparse.hpp>
 #include "worker.hpp"
-
+#include <spdlog/spdlog.h>
 
 int main(int argc, char **argv) {
+
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S]: %v");
+
     argparse::ArgumentParser program{"kroxy"};
     program.add_argument("-c", "--config")
         .required()
@@ -52,7 +55,7 @@ int main(int argc, char **argv) {
             ctx.run();
         }
     } catch (const std::exception &ex) {
-        std::println(stderr, "Something went wrong: {}", ex.what());
+        spdlog::error("Something went wrong: {}", ex.what());
         return EXIT_FAILURE;
     }
 

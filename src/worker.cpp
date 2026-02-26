@@ -13,7 +13,7 @@ void Master::clear_workers() {
     for (const auto &worker: workers) {
         int res = kill(worker.pid, SIGTERM);
         if (res < 0) {
-            std::println(stderr, "kill failed: {}", std::strerror(errno)); // NOLINT(concurrency-mt-unsafe)
+            spdlog::error("kill failed: {}", std::strerror(errno));
         }
 
         siginfo_t siginfo{};
@@ -24,7 +24,7 @@ void Master::clear_workers() {
         } while (res < 0 && errno == EINTR);
 
         if (res < 0) {
-            std::println(stderr, "clean workers: waitid failed: {}", std::strerror(errno)); // NOLINT(concurrency-mt-unsafe)
+            spdlog::error("clean workers: waitid failed: {}", std::strerror(errno));
         }
     }
 }
@@ -62,7 +62,7 @@ void Master::signal_handler(boost::asio::signal_set &s_set, boost::asio::io_cont
                 child_info.si_pid = 0; // clear this, so there won't be an inf. loop
                    }
             if (res < 0) {
-                std::println(stderr, "waitid failed: {}", std::strerror(errno)); // NOLINT(concurrency-mt-unsafe)
+                spdlog::error("waitid failed: {}", std::strerror(errno));
             }
 
             s_set.async_wait([&](const boost::system::error_code &errc2, int sig_n2) {
