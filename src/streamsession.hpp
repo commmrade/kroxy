@@ -42,6 +42,7 @@ public:
     void run() override;
 
 private:
+    void check_log();
     void log();
 
     void handle_service();
@@ -55,6 +56,8 @@ private:
 
 
     // Logging stuff
-    std::size_t bytes_sent_{};
-    std::chrono::time_point<std::chrono::system_clock> start_time_;
+    std::optional<boost::asio::ip::address> client_addr_;
+    std::optional<std::size_t> bytes_sent_us_;
+    std::optional<std::size_t> bytes_sent_ds_;
+    std::optional<std::chrono::time_point<std::chrono::system_clock> > start_time_;
 };

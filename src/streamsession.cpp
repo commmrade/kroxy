@@ -19,6 +19,12 @@ StreamSession::~StreamSession() {
     log();
 }
 
+void StreamSession::check_log() {
+    if (bytes_sent_us_.has_value() && bytes_sent_ds_.has_value() && start_time_.has_value()) {
+        log();
+    }
+}
+
 void StreamSession::handle_timer(const boost::system::error_code &errc, WaitState state) {
     if (!errc) {
         std::println(stderr, "Timed out: {}", static_cast<int>(state));
@@ -120,10 +126,23 @@ void StreamSession::handle_service() {
                                                                                return;
                                                                            }
 
+                                                                           self->start_time_ =
+                                                                                   std::chrono::high_resolution_clock::now();
+                                                                           self->client_addr_.emplace(self->client_sock_.socket().remote_endpoint().address());
+                                                                           self->bytes_sent_us_.emplace(0);
+                                                                           self->bytes_sent_ds_.emplace(0);
+
+
                                                                            self->do_downstream();
                                                                            self->do_upstream();
                                                                        });
                                                                } else {
+                                                                   self->start_time_ =
+                                                                           std::chrono::high_resolution_clock::now();
+                                                                   self->client_addr_.emplace(self->client_sock_.socket().remote_endpoint().address());
+                                                                   self->bytes_sent_us_.emplace(0);
+                                                                   self->bytes_sent_ds_.emplace(0);
+
                                                                    // plain TCP -> proceed
                                                                    self->do_downstream();
                                                                    self->do_upstream();
@@ -133,7 +152,6 @@ void StreamSession::handle_service() {
 }
 
 void StreamSession::run() {
-    start_time_ = std::chrono::high_resolution_clock::now();
     handle_service();
 }
 
@@ -143,18 +161,22 @@ void StreamSession::log() {
         for (const auto var: cfg_.format_log.used_vars) {
             switch (var) {
                 case LogFormat::Variable::CLIENT_ADDR: {
-                    replace_variable(log_msg, LogFormat::Variable::CLIENT_ADDR,
-                                     client_sock_.socket().local_endpoint().address().to_string());
+                    replace_variable(log_msg, var,
+                        client_addr_.value().to_string());
                     break;
                 }
-                case LogFormat::Variable::BYTES_SENT: {
-                    replace_variable(log_msg, LogFormat::Variable::BYTES_SENT, std::to_string(bytes_sent_));;
+                case LogFormat::Variable::BYTES_SENT_UPSTREAM: {
+                    replace_variable(log_msg, var, std::to_string(bytes_sent_us_.value()));;
+                    break;
+                }
+                case LogFormat::Variable::BYTES_SENT_DOWNSTREAM: {
+                    replace_variable(log_msg, var, std::to_string(bytes_sent_ds_.value()));;
                     break;
                 }
                 case LogFormat::Variable::PROCESSING_TIME: {
                     auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::high_resolution_clock::now() - start_time_);
-                    replace_variable(log_msg, LogFormat::Variable::PROCESSING_TIME, std::format("{}ms", diff.count()));
+                        std::chrono::high_resolution_clock::now() - start_time_.value());
+                    replace_variable(log_msg, var, std::format("{}ms", diff.count()));
                     break;
                 }
                 default: {
@@ -204,7 +226,7 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
 
 void StreamSession::do_write_service(const boost::system::error_code &errc, std::size_t bytes_tf) {
     if (!errc) {
-        bytes_sent_ += bytes_tf;
+        bytes_sent_us_.value() += bytes_tf;
 
         upstream_buf_.consume(bytes_tf);
         assert(upstream_buf_.size() == 0);
@@ -261,7 +283,7 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
 
 void StreamSession::do_write_client(const boost::system::error_code &errc, std::size_t bytes_tf) {
     if (!errc) {
-        bytes_sent_ += bytes_tf;
+        bytes_sent_ds_.value() += bytes_tf;
 
         downstream_buf_.consume(bytes_tf);
         assert(downstream_buf_.size() == 0);
