@@ -10,7 +10,7 @@
 #include "upstream.hpp"
 #include "utils.hpp"
 
-class HttpSession : public Session {
+class HttpSession final : public Session {
 private:
     void process_headers(boost::beast::http::request<boost::beast::http::buffer_body> &msg);
 

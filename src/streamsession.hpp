@@ -8,7 +8,7 @@
 #include "upstream.hpp"
 #include "session.hpp"
 
-class StreamSession : public Session {
+class StreamSession final : public Session {
 private:
     // client to service
     void do_read_client(const boost::system::error_code &errc, std::size_t bytes_tf);
