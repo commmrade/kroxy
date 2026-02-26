@@ -28,7 +28,8 @@ struct LogFormat {
     enum class Variable {
         // Common variables
         CLIENT_ADDR,
-        BYTES_SENT,
+        BYTES_SENT_UPSTREAM, // Upstream
+        BYTES_SENT_DOWNSTREAM,
         PROCESSING_TIME,
 
         // HTTP specific
@@ -45,8 +46,10 @@ struct LogFormat {
     static Variable string_to_variable(const std::string_view str) {
         if (str == "client_addr") {
             return Variable::CLIENT_ADDR;
-        } else if (str == "bytes_sent") {
-            return Variable::BYTES_SENT;
+        } else if (str == "bytes_sent_upstream") {
+            return Variable::BYTES_SENT_UPSTREAM;
+        } else if (str == "bytes_sent_downstream") {
+            return Variable::BYTES_SENT_DOWNSTREAM;
         } else if (str == "processing_time") {
             return Variable::PROCESSING_TIME;
         } else if (str == "request_uri") {
@@ -66,8 +69,10 @@ struct LogFormat {
         switch (var) {
             case Variable::CLIENT_ADDR:
                 return "client_addr";
-            case Variable::BYTES_SENT:
-                return "bytes_sent";
+            case Variable::BYTES_SENT_UPSTREAM:
+                return "bytes_sent_upstream";
+            case Variable::BYTES_SENT_DOWNSTREAM:
+                return "bytes_sent_downstream";
             case Variable::PROCESSING_TIME:
                 return "processing_time";
             case Variable::REQUEST_URI:
