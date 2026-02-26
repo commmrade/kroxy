@@ -83,11 +83,13 @@ private:
     Host current_host_;
 
     // Logging stuff
-    std::optional<std::size_t> bytes_sent_{};
+    std::optional<boost::asio::ip::address> client_addr_;
+    std::optional<std::size_t> bytes_sent_us_;
+    std::optional<std::size_t> bytes_sent_ds_;
     std::optional<std::chrono::time_point<std::chrono::system_clock> > start_time_;
     std::optional<std::string> request_uri_;
     std::optional<std::string> request_method_;
-    std::optional<unsigned int> http_status_{};
+    std::optional<unsigned int> http_status_;
     std::optional<std::string> user_agent_;
 };
 

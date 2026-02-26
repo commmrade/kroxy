@@ -16,7 +16,10 @@ HttpSession::HttpSession(boost::asio::io_context &ctx,
 
 void HttpSession::run() {
     start_time_.emplace(std::chrono::high_resolution_clock::now());
-    bytes_sent_.emplace(0);
+    client_addr_.emplace(client_sock_.socket().remote_endpoint().address());
+    bytes_sent_us_.emplace(0);
+    bytes_sent_ds_.emplace(0);
+
     do_upstream();
 }
 
@@ -39,8 +42,8 @@ void HttpSession::process_headers(boost::beast::http::request<boost::beast::http
 
 
 void HttpSession::check_log() {
-    if (bytes_sent_.has_value() && start_time_.has_value() && request_uri_.has_value() && http_status_.has_value()
-        && user_agent_.has_value() && request_method_.has_value()) {
+    if (bytes_sent_us_.has_value() && bytes_sent_ds_.has_value() && start_time_.has_value() && request_uri_.has_value() && http_status_.has_value()
+        && user_agent_.has_value() && request_method_.has_value() && client_addr_.has_value()) {
         log();
     }
 }
@@ -51,11 +54,15 @@ void HttpSession::log() {
         for (const auto var: cfg_.format_log.used_vars) {
             switch (var) {
                 case LogFormat::Variable::CLIENT_ADDR: {
-                    replace_variable(log_msg, var, client_sock_.socket().local_endpoint().address().to_string());
+                    replace_variable(log_msg, var, client_addr_.value().to_string());
                     break;
                 }
-                case LogFormat::Variable::BYTES_SENT: {
-                    replace_variable(log_msg, var, std::to_string(bytes_sent_.value()));;
+                case LogFormat::Variable::BYTES_SENT_UPSTREAM: {
+                    replace_variable(log_msg, var, std::to_string(bytes_sent_us_.value()));;
+                    break;
+                }
+                case LogFormat::Variable::BYTES_SENT_DOWNSTREAM: {
+                    replace_variable(log_msg, var, std::to_string(bytes_sent_ds_.value()));;
                     break;
                 }
                 case LogFormat::Variable::PROCESSING_TIME: {
@@ -87,7 +94,10 @@ void HttpSession::log() {
         }
         logger_.value().write(log_msg);
 
-        bytes_sent_.emplace(0);
+        // These are set only here
+        bytes_sent_us_.emplace(0);
+        bytes_sent_ds_.emplace(0);
+
         start_time_.reset();
         request_uri_.reset();
         request_method_.reset();
@@ -380,7 +390,7 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
 void HttpSession::do_write_service_header(const boost::system::error_code &errc,
                                           [[maybe_unused]] std::size_t bytes_tf) {
     if (!errc) {
-        bytes_sent_.value() += bytes_tf;
+        bytes_sent_us_.value() += bytes_tf;
 
         if (!request_p_->is_done()) {
             upstream_state_ = State::BODY;
@@ -431,7 +441,7 @@ void HttpSession::do_read_client_body(const boost::system::error_code &errc, [[m
 
 void HttpSession::do_write_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
     if (errc == boost::beast::http::error::need_buffer || !errc) {
-        bytes_sent_.value() += bytes_tf;
+        bytes_sent_us_.value() += bytes_tf;
 
         if (request_p_->is_done() && request_s_->is_done()) {
             check_log();
@@ -519,7 +529,7 @@ void HttpSession::do_read_service_header(const boost::system::error_code &errc, 
 
 void HttpSession::do_write_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
     if (!errc) {
-        bytes_sent_.value() += bytes_tf;
+        bytes_sent_ds_.value() += bytes_tf;
 
         // Now we need to start reading the body, considering we may have body bytes in upstream_buf_
         if (!response_p_->is_done()) {
@@ -571,8 +581,7 @@ void HttpSession::do_read_service_body(const boost::system::error_code &errc, [[
 
 void HttpSession::do_write_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
     if (boost::beast::http::error::need_buffer == errc || !errc) {
-        bytes_sent_.value() += bytes_tf;
-
+        bytes_sent_ds_.value() += bytes_tf;
 
         if (response_p_->is_done() && response_s_->is_done()) {
             check_log();
