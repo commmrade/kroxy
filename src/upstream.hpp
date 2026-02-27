@@ -8,6 +8,7 @@
 #include <vector>
 #include <ranges>
 #include "boost/asio/ip/address.hpp"
+#include <boost/asio/ssl/context.hpp>
 
 struct BalancerData {
     std::string_view URI;
@@ -32,7 +33,22 @@ struct Host {
 
 class Upstream {
 public:
-    Upstream(UpstreamOptions&& options) : options_(std::move(options)) {}
+    Upstream(UpstreamOptions&& options) : options_(std::move(options)) {
+        ssl_context_ = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_client);
+
+        if (options_.proxy_tls_verify.value_or(false)) {
+            ssl_context_->set_default_verify_paths();
+            ssl_context_->set_verify_mode(boost::asio::ssl::verify_peer);
+        }
+
+        if (options_.proxy_tls_cert_path.has_value() && options_.proxy_tls_key_path.has_value()) {
+            ssl_context_->use_certificate_chain_file(
+                options_.proxy_tls_cert_path.value());
+            ssl_context_->use_private_key_file(
+                options_.proxy_tls_key_path.value(),
+                boost::asio::ssl::context::file_format::pem);
+        }
+    }
 
     virtual ~Upstream() = default;
 
@@ -56,9 +72,14 @@ public:
     virtual void disconnect_host([[maybe_unused]] std::size_t index) {
         // This might not be used by every algorithm (Round-robin f.e), but it may be used by least connection algo
     }
+
+    std::shared_ptr<boost::asio::ssl::context> ssl_context() const {
+        return ssl_context_;
+    }
 protected:
     std::vector<Host> hosts_;
     UpstreamOptions options_;
+    std::shared_ptr<boost::asio::ssl::context> ssl_context_;
 };
 
 class FirstUpstream : public Upstream {

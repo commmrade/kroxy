@@ -112,10 +112,6 @@ struct CommonConfig {
     std::optional<bool> tls_verify_client;
 
     // tls client stuff
-    std::optional<bool> proxy_tls_enabled;
-    std::optional<std::string> proxy_tls_cert_path;
-    std::optional<std::string> proxy_tls_key_path;
-    std::optional<bool> proxy_tls_verify;
 
     std::optional<std::string> file_log;
     LogFormat format_log;

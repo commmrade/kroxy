@@ -74,23 +74,7 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
             }
         }
     }
-    if (serv_obj.isMember("proxy_tls_enabled")) {
-        cfg.proxy_tls_enabled = serv_obj.get("proxy_tls_enabled", false).asBool();
-        if (cfg.proxy_tls_enabled) {
-            std::string proxy_tls_cert_path = serv_obj.get("proxy_tls_cert_path", "").asString();
-            std::string proxy_tls_key_path = serv_obj.get("proxy_tls_key_path", "").asString();
-            if (proxy_tls_cert_path.empty() || proxy_tls_key_path.empty()) {
-                throw std::runtime_error("TLS Proxy Invalid certificate/key path");
-            }
 
-            cfg.proxy_tls_cert_path.emplace(std::move(proxy_tls_cert_path));
-            cfg.proxy_tls_key_path.emplace(std::move(proxy_tls_key_path));
-
-            if (serv_obj.isMember("proxy_tls_verify")) {
-                cfg.proxy_tls_verify = serv_obj.get("proxy_tls_verify", false).asBool();
-            }
-        }
-    }
 
     // Logs stuff
     if (serv_obj.isMember("file_log")) {
@@ -108,6 +92,25 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
             std::optional<bool> proxy_tls_verify;
             std::optional<std::string> proxy_tls_cert_path;
             std::optional<std::string> proxy_tls_key_path;
+
+            // TODO: BETTER HANDLING LIKETHIS:
+            // if (serv_obj.isMember("proxy_tls_enabled")) {
+            //     cfg.proxy_tls_enabled = serv_obj.get("proxy_tls_enabled", false).asBool();
+            //     if (cfg.proxy_tls_enabled) {
+            //         std::string proxy_tls_cert_path = serv_obj.get("proxy_tls_cert_path", "").asString();
+            //         std::string proxy_tls_key_path = serv_obj.get("proxy_tls_key_path", "").asString();
+            //         if (proxy_tls_cert_path.empty() || proxy_tls_key_path.empty()) {
+            //             throw std::runtime_error("TLS Proxy Invalid certificate/key path");
+            //         }
+            //
+            //         cfg.proxy_tls_cert_path.emplace(std::move(proxy_tls_cert_path));
+            //         cfg.proxy_tls_key_path.emplace(std::move(proxy_tls_key_path));
+            //
+            //         if (serv_obj.isMember("proxy_tls_verify")) {
+            //             cfg.proxy_tls_verify = serv_obj.get("proxy_tls_verify", false).asBool();
+            //         }
+            //     }
+            // }
             if (block.isMember("proxy_tls_enabled")) {
                 proxy_tls_enabled = block["proxy_tls_enabled"].asBool();
             }

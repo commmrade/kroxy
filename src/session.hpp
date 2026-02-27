@@ -62,7 +62,7 @@ public:
     void connect_service(CommonConfig &cfg_, BalancerData &data, CompletionToken &&token) {
         auto &cfg = Config::instance();
 
-        auto upstream = cfg.get_upstream();
+        const auto upstream = cfg.get_upstream();
         const auto upstream_options = upstream->options();
         auto [host, idx] = upstream->select_host(data);
         if (host.host.empty()) {
@@ -72,27 +72,15 @@ public:
         session_idx_.emplace(idx);
         current_host_.emplace(host);
 
-        bool const host_is_tls = cfg_.proxy_tls_enabled.value_or(upstream_options.proxy_tls_enabled.value_or(false));
+        bool const host_is_tls = upstream_options.proxy_tls_enabled.value_or(false);
 
         auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(client_sock_.socket().get_executor());
 
         auto &exec = client_sock_.socket().get_executor();
         auto &ioc = static_cast<boost::asio::io_context &>(exec.context());
 
-        auto service_ssl_ctx = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_client);
-        if (cfg_.proxy_tls_verify.value_or(upstream_options.proxy_tls_verify.value_or(false))) {
-            service_ssl_ctx->set_default_verify_paths();
-            service_ssl_ctx->set_verify_mode(boost::asio::ssl::verify_peer);
-        }
-        if ((cfg_.proxy_tls_cert_path.has_value() && cfg_.proxy_tls_key_path.has_value()) || (
-                upstream_options.proxy_tls_cert_path.has_value() && upstream_options.proxy_tls_key_path.has_value())) {
-            service_ssl_ctx->use_certificate_chain_file(
-                cfg_.proxy_tls_cert_path.value_or(upstream_options.proxy_tls_cert_path.value()));
-            service_ssl_ctx->use_private_key_file(
-                cfg_.proxy_tls_key_path.value_or(upstream_options.proxy_tls_key_path.value()),
-                boost::asio::ssl::context::file_format::pem);
-        }
-        service_sock_ = std::make_unique<Stream>(ioc, std::move(service_ssl_ctx), host_is_tls);
+        auto ssl_context = upstream->ssl_context();
+        service_sock_ = std::make_unique<Stream>(ioc, std::move(ssl_context), host_is_tls);
 
         // resolve -> connect -> optional TLS handshake -> do_downstream() && do_upstream()
         prepare_timer(upstream_timer_, WaitState::RESOLVE, cfg_.resolve_timeout_ms);
@@ -124,13 +112,14 @@ public:
                                    [self = shared_from_this(), host = std::move(host), token = std::move(token)](
                                const boost::system::error_code &errc2,
                                [[maybe_unused]] const
-                               boost::asio::ip::tcp::endpoint &endpoint) mutable  {
+                               boost::asio::ip::tcp::endpoint &endpoint) mutable {
                                        self->on_connected(errc2, endpoint, std::move(host), std::move(token));
                                    }); // async_connect
     }
 
     template<typename CompletionToken>
-    void on_connected(const boost::system::error_code &errc, [[maybe_unused]] const boost::asio::ip::tcp::endpoint &ep, Host&& host,
+    void on_connected(const boost::system::error_code &errc, [[maybe_unused]] const boost::asio::ip::tcp::endpoint &ep,
+                      Host &&host,
                       CompletionToken &&token) {
         if (errc) {
             spdlog::error("Connecting to service failed: {}",
@@ -167,8 +156,9 @@ public:
         }
     }
 
-    void handle_client_read_error(const boost::system::error_code& errc, const std::string_view err_str) {
-        if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc || boost::asio::error::eof == errc) {
+    void handle_client_read_error(const boost::system::error_code &errc, const std::string_view err_str) {
+        if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc ||
+            boost::asio::error::eof == errc) {
             if (service_sock_ && service_sock_->is_tls()) {
                 // async_shutdown exists on Stream
                 service_sock_->async_shutdown(
@@ -187,8 +177,9 @@ public:
         }
     }
 
-    void handle_service_read_error(const boost::system::error_code& errc, const std::string_view err_str) {
-        if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc || boost::asio::error::eof == errc) {
+    void handle_service_read_error(const boost::system::error_code &errc, const std::string_view err_str) {
+        if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc ||
+            boost::asio::error::eof == errc) {
             if (client_sock_.is_tls()) {
                 // async_shutdown exists on Stream
                 client_sock_.async_shutdown(
@@ -207,7 +198,7 @@ public:
         }
     }
 
-    void handle_write_error(const boost::system::error_code& errc, const std::string_view err_str) {
+    void handle_write_error(const boost::system::error_code &errc, const std::string_view err_str) {
         if (boost::asio::error::operation_aborted != errc) {
             spdlog::error(err_str);
         }
