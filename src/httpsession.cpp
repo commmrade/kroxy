@@ -33,7 +33,7 @@ void HttpSession::process_headers(boost::beast::http::request<boost::beast::http
             msg.set(header_name, fin_val);
         } else if (const auto host_pos = header_value.find(HOST_HEADER_VAR); host_pos != std::string::npos) {
             auto fin_val = header_value;
-            fin_val.replace(host_pos, HOST_HEADER_VAR.size(), current_host_.host);
+            fin_val.replace(host_pos, HOST_HEADER_VAR.size(), current_host_.value().host);
             msg.set(header_name, fin_val);
         } else {
             msg.set(header_name, header_value);
@@ -43,7 +43,8 @@ void HttpSession::process_headers(boost::beast::http::request<boost::beast::http
 
 
 void HttpSession::check_log() {
-    if (log_ctx_.bytes_sent_us.has_value() && log_ctx_.bytes_sent_ds.has_value() && log_ctx_.start_time.has_value() && log_ctx_.request_uri.has_value() && log_ctx_.http_status.has_value()
+    if (log_ctx_.bytes_sent_us.has_value() && log_ctx_.bytes_sent_ds.has_value() && log_ctx_.start_time.has_value() &&
+        log_ctx_.request_uri.has_value() && log_ctx_.http_status.has_value()
         && log_ctx_.user_agent.has_value() && log_ctx_.request_method.has_value() && log_ctx_.client_addr.has_value()) {
         log_and_reset();
     }
@@ -160,145 +161,6 @@ void HttpSession::handle_timer(const boost::system::error_code &errc, WaitState 
     }
 }
 
-void HttpSession::handle_service(
-    [[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body> &msg) {
-    // Data that balancers can use to route
-    BalancerData data;
-    if (client_sock_.is_tls()) {
-        data.tls_sni = client_sock_.get_sni();
-    }
-    data.URI = msg.base().target();
-    auto const it = msg.find(boost::beast::http::field::host);
-    if (it != msg.end()) {
-        data.header_host = it->value();
-    }
-    data.client_address = client_sock_.socket().remote_endpoint().address();
-
-    // Setting up service socket
-    auto &cfg = Config::instance();
-    auto upstream = cfg.get_upstream();
-    const auto upstream_options = upstream->options();
-
-    auto [host, idx] = upstream->select_host(data);
-    if (host.host.empty()) {
-        spdlog::error("Host is empty, dropping session");
-        return;
-    }
-    current_host_ = host;
-    session_idx_ = idx;
-
-    bool const host_is_tls = upstream_options.proxy_tls_enabled.value_or(cfg_.proxy_tls_enabled.value_or(false));
-
-    auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(client_sock_.socket().get_executor());
-
-    // obtain io_context from the client's executor
-    auto &exec = client_sock_.socket().get_executor();
-    auto &ioc = static_cast<boost::asio::io_context &>(exec.context());
-
-    auto service_ssl_ctx = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_client);
-    service_ssl_ctx->set_default_verify_paths();
-    if (upstream_options.proxy_tls_verify.value_or(cfg_.proxy_tls_verify.value_or(false))) {
-        service_ssl_ctx->set_verify_mode(boost::asio::ssl::verify_peer);
-    }
-    if ((upstream_options.proxy_tls_cert_path.has_value() && upstream_options.proxy_tls_key_path.has_value()) || (
-            cfg_.proxy_tls_cert_path.has_value() && cfg_.proxy_tls_key_path.has_value())) {
-        service_ssl_ctx->use_certificate_chain_file(
-            upstream_options.proxy_tls_cert_path.value_or(cfg_.proxy_tls_cert_path.value()));
-        service_ssl_ctx->use_private_key_file(
-            upstream_options.proxy_tls_key_path.value_or(cfg_.proxy_tls_key_path.value()),
-            boost::asio::ssl::context::file_format::pem);
-    }
-    // construct the service Stream (uses the rvalue ctor so is_tls_ is set correctly)
-    service_sock_ = std::make_unique<Stream>(ioc, std::move(service_ssl_ctx), host_is_tls);
-
-    // resolve -> connect -> optional TLS handshake -> do_downstream()
-    prepare_timer(upstream_timer_, WaitState::RESOLVE, cfg_.resolve_timeout_ms);
-    resolver->async_resolve(host.host,
-                            std::to_string(host.port),
-                            [self = shared_from_base<HttpSession>(), resolver, host](
-                        const boost::system::error_code &errc,
-                        const boost::asio::ip::tcp::resolver::results_type &eps) {
-                                if (errc) {
-                                    spdlog::error("Resolving failed: {}", errc.message());
-                                    self->close_ses();
-                                    return;
-                                }
-
-                                // async_connect using the resolved endpoints
-                                self->prepare_timer(self->upstream_timer_, WaitState::CONNECT,
-                                                    self->cfg_.connect_timeout_ms);
-                                boost::asio::async_connect(self->service_sock_->socket(),
-                                                           eps,
-                                                           [self, host](const boost::system::error_code &errc2,
-                                                                        [[maybe_unused]] const
-                                                                        boost::asio::ip::tcp::endpoint &endpoint) {
-                                                               if (errc2) {
-                                                                   spdlog::error("Connecting to service failed: {}", errc2.message());
-                                                                   self->close_ses();
-                                                                   return;
-                                                               }
-                                                               // if TLS is required, perform SNI + handshake
-                                                               if (self->service_sock_->is_tls()) {
-                                                                   if (!self->service_sock_->
-                                                                       set_sni(host.host)) {
-                                                                       // NOLINT
-                                                                       spdlog::error("Warning: set_sni failed for host {}", host.host);
-                                                                       // not fatal necessarily; continue to handshake
-                                                                   }
-
-                                                                   self->service_sock_->async_handshake(
-                                                                       boost::asio::ssl::stream_base::client,
-                                                                       [self](
-                                                                   const boost::system::error_code &errc3) {
-                                                                           if (errc3) {
-                                                                               spdlog::error("Service TLS handshake failed: {}", errc3.message());
-                                                                               self->close_ses();
-                                                                               return;
-                                                                           }
-                                                                           // connected + (optional) TLS handshake done -> proceed
-                                                                           self->prepare_timer(
-                                                                               self->upstream_timer_,
-                                                                               WaitState::PROXY_SEND,
-                                                                               self->cfg_.proxy_send_timeout_ms);
-                                                                           self->process_headers(
-                                                                               self->request_p_->get());
-                                                                           self->service_sock_->
-                                                                                   async_write_header(
-                                                                                       *self->request_s_,
-                                                                                       [self](
-                                                                                   const
-                                                                                   boost::system::error_code &
-                                                                                   errc4,
-                                                                                   [[maybe_unused]] std::size_t
-                                                                                   bytes_tf) {
-                                                                                           self->
-                                                                                                   do_write_service_header(
-                                                                                                       errc4,
-                                                                                                       bytes_tf);
-                                                                                       });
-                                                                           self->do_downstream();
-                                                                       });
-                                                               } else {
-                                                                   // plain TCP -> proceed
-                                                                   self->prepare_timer(
-                                                                       self->upstream_timer_, WaitState::PROXY_SEND,
-                                                                       self->cfg_.proxy_send_timeout_ms);
-                                                                   self->process_headers(
-                                                                               self->request_p_->get());
-                                                                   self->service_sock_->async_write_header(
-                                                                       *self->request_s_,
-                                                                       [self](
-                                                                   const boost::system::error_code &errc3,
-                                                                   [[maybe_unused]] std::size_t bytes_tf) {
-                                                                           self->do_write_service_header(
-                                                                               errc3, bytes_tf);
-                                                                       });
-                                                                   self->do_downstream();
-                                                               }
-                                                           }); // async_connect
-                            }); // async_resolve
-}
-
 void HttpSession::do_read_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
     if (!errc) {
         auto &msg = request_p_.value().get();
@@ -313,7 +175,8 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
         request_s_.emplace(msg);
 
         if (service_sock_) {
-            process_headers(msg); // If it isn't a first request, process headers here, since current_host_ is already set, otherwise process headers inside handle_service()
+            process_headers(msg);
+            // If it isn't a first request, process headers here, since current_host_ is already set, otherwise process headers inside handle_service()
 
             prepare_timer(upstream_timer_, WaitState::PROXY_SEND, cfg_.proxy_send_timeout_ms);
             service_sock_->async_write_header(*request_s_,
@@ -323,7 +186,40 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
                                                   self->do_write_service_header(errc2, bytes_tf2);
                                               });
         } else {
-            handle_service(msg);
+            BalancerData data;
+            if (client_sock_.is_tls()) {
+                data.tls_sni = client_sock_.get_sni();
+            }
+            data.URI = msg.base().target();
+            auto const it = msg.find(boost::beast::http::field::host);
+            if (it != msg.end()) {
+                data.header_host = it->value();
+            }
+            data.client_address = client_sock_.socket().remote_endpoint().address();
+
+            connect_service(cfg_, data, [self = shared_from_base<HttpSession>()] {
+                self->prepare_timer(
+                    self->upstream_timer_,
+                    WaitState::PROXY_SEND,
+                    self->cfg_.proxy_send_timeout_ms);
+                self->process_headers(
+                    self->request_p_->get());
+                self->service_sock_->
+                        async_write_header(
+                            *self->request_s_,
+                            [self](
+                        const
+                        boost::system::error_code &
+                        errc2,
+                        [[maybe_unused]] std::size_t
+                        bytes_tf2) {
+                                self->
+                                        do_write_service_header(
+                                            errc2,
+                                            bytes_tf2);
+                            });
+                self->do_downstream();
+            });;
         }
     } else {
         if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
@@ -592,9 +488,11 @@ void HttpSession::do_downstream() {
         }
     }
 }
+
 // HttpSession end
 
-std::shared_ptr<boost::beast::http::response<boost::beast::http::string_body>> make_timeout_response(TimeoutType resp_kind) {
+std::shared_ptr<boost::beast::http::response<boost::beast::http::string_body> > make_timeout_response(
+    TimeoutType resp_kind) {
     auto resp = std::make_shared<boost::beast::http::response<boost::beast::http::string_body> >();
     resp->set(boost::beast::http::field::content_type, "text/html");
     resp->set(boost::beast::http::field::connection, "close");

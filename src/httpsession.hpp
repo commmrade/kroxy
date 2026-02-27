@@ -54,7 +54,7 @@ private:
 
     void log_and_reset();
 
-    void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body> &msg);
+    // void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body> &msg);
 
     void handle_timer(const boost::system::error_code &errc, WaitState state) override;
 
@@ -78,9 +78,6 @@ private:
     boost::beast::flat_buffer downstream_buf_;
     std::array<char, BUF_SIZE> ds_buf_{};
     State downstream_state_{};
-
-    // Headers stuff
-    Host current_host_;
 
     // Logging stuff
     struct LogContext {

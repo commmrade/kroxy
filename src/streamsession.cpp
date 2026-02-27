@@ -36,126 +36,26 @@ void StreamSession::handle_timer(const boost::system::error_code &errc, WaitStat
     }
 }
 
-void StreamSession::handle_service() {
-    // Setting up data that balancers can use to route
+void StreamSession::run() {
     BalancerData data;
     if (client_sock_.is_tls()) {
         data.tls_sni = client_sock_.get_sni();
     }
     data.client_address = client_sock_.socket().remote_endpoint().address();
 
-    // Setting up service socket
-    auto &cfg = Config::instance();
-
-    auto upstream = cfg.get_upstream();
-    const auto upstream_options = upstream->options();
-    auto [host, idx] = upstream->select_host(data);
-    if (host.host.empty()) {
-        spdlog::error("Host is empty, dropping session");
-        return;
-    }
-    session_idx_ = idx;
-
-    bool const host_is_tls = upstream_options.proxy_tls_enabled.value_or(cfg_.proxy_tls_enabled.value_or(false));
-
-    auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(client_sock_.socket().get_executor());
-
-    auto &exec = client_sock_.socket().get_executor();
-    auto &ioc = static_cast<boost::asio::io_context &>(exec.context());
-
-    auto service_ssl_ctx = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_client);
-    service_ssl_ctx->set_default_verify_paths();
-    if (upstream_options.proxy_tls_verify.value_or(cfg_.proxy_tls_verify.value_or(false))) {
-        service_ssl_ctx->set_verify_mode(boost::asio::ssl::verify_peer);
-    }
-    if ((upstream_options.proxy_tls_cert_path.has_value() && upstream_options.proxy_tls_key_path.has_value()) || (
-            cfg_.proxy_tls_cert_path.has_value() && cfg_.proxy_tls_key_path.has_value())) {
-        service_ssl_ctx->use_certificate_chain_file(
-            upstream_options.proxy_tls_cert_path.value_or(cfg_.proxy_tls_cert_path.value()));
-        service_ssl_ctx->use_private_key_file(
-            upstream_options.proxy_tls_key_path.value_or(cfg_.proxy_tls_key_path.value()),
-            boost::asio::ssl::context::file_format::pem);
-    }
-    service_sock_ = std::make_unique<Stream>(ioc, std::move(service_ssl_ctx), host_is_tls);
-
-    // resolve -> connect -> optional TLS handshake -> do_downstream() && do_upstream()
-    prepare_timer(upstream_timer_, WaitState::RESOLVE, cfg_.resolve_timeout_ms);
-    resolver->async_resolve(host.host,
-                            std::to_string(host.port),
-                            [self = shared_from_base<StreamSession>(), resolver, host](
-                        const boost::system::error_code &errc,
-                        const boost::asio::ip::tcp::resolver::results_type &eps) {
-                                if (errc) {
-                                    spdlog::error("Resolving failed: {}", errc.message());
-                                    self->close_ses();
-                                    return;
-                                }
-
-                                self->prepare_timer(self->upstream_timer_, WaitState::CONNECT,
-                                                    self->cfg_.connect_timeout_ms);
-                                boost::asio::async_connect(self->service_sock_->socket(),
-                                                           eps,
-                                                           [self, host](const boost::system::error_code &errc2,
-                                                                        [[maybe_unused]] const
-                                                                        boost::asio::ip::tcp::endpoint &endpoint) {
-                                                               if (errc2) {
-                                                                   spdlog::error("Connecting to service failed: {}",
-                                                                       errc2.message());
-                                                                   self->close_ses();
-                                                                   return;
-                                                               }
-
-                                                               // if TLS is required, perform SNI + handshake
-                                                               if (self->service_sock_->is_tls()) {
-                                                                   if (!self->service_sock_->set_sni(host.host)) {
-                                                                       // NOLINT
-                                                                       spdlog::error(
-                                                                           "Warning: set_sni failed for host {}",
-                                                                           host.host);
-                                                                   }
-
-                                                                   self->service_sock_->async_handshake(
-                                                                       boost::asio::ssl::stream_base::client,
-                                                                       [self](const boost::system::error_code &errc3) {
-                                                                           if (errc3) {
-                                                                               spdlog::error(
-                                                                                   "Service TLS handshake failed: {}",
-                                                                                   errc3.message());
-                                                                               self->close_ses();
-                                                                               return;
-                                                                           }
-
-                                                                           self->log_ctx_.start_time =
-                                                                                   std::chrono::high_resolution_clock::now();
-                                                                           self->log_ctx_.client_addr.emplace(
-                                                                               self->client_sock_.socket().
-                                                                               remote_endpoint().address());
-                                                                           self->log_ctx_.bytes_sent_us.emplace(0);
-                                                                           self->log_ctx_.bytes_sent_ds.emplace(0);
+    connect_service(cfg_, data, [self = shared_from_base<StreamSession>()]() {
+        self->log_ctx_.start_time =
+                std::chrono::high_resolution_clock::now();
+        self->log_ctx_.client_addr.emplace(
+            self->client_sock_.socket().
+            remote_endpoint().address());
+        self->log_ctx_.bytes_sent_us.emplace(0);
+        self->log_ctx_.bytes_sent_ds.emplace(0);
 
 
-                                                                           self->do_downstream();
-                                                                           self->do_upstream();
-                                                                       });
-                                                               } else {
-                                                                   self->log_ctx_.start_time =
-                                                                           std::chrono::high_resolution_clock::now();
-                                                                   self->log_ctx_.client_addr.emplace(
-                                                                       self->client_sock_.socket().remote_endpoint().
-                                                                       address());
-                                                                   self->log_ctx_.bytes_sent_us.emplace(0);
-                                                                   self->log_ctx_.bytes_sent_ds.emplace(0);
-
-                                                                   // plain TCP -> proceed
-                                                                   self->do_downstream();
-                                                                   self->do_upstream();
-                                                               }
-                                                           }); // async_connect
-                            }); // async_resolve
-}
-
-void StreamSession::run() {
-    handle_service();
+        self->do_downstream();
+        self->do_upstream();
+    });;
 }
 
 void StreamSession::log_and_reset() {

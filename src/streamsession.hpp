@@ -45,7 +45,7 @@ private:
     void check_log();
     void log_and_reset();
 
-    void handle_service();
+    // void handle_service();
 
     void handle_timer(const boost::system::error_code &errc, WaitState state) override;
 
