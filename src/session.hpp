@@ -167,6 +167,53 @@ public:
         }
     }
 
+    void handle_client_read_error(const boost::system::error_code& errc, const std::string_view err_str) {
+        if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc || boost::asio::error::eof == errc) {
+            if (service_sock_ && service_sock_->is_tls()) {
+                // async_shutdown exists on Stream
+                service_sock_->async_shutdown(
+                    [self = shared_from_this()]([[maybe_unused]] const auto &errc2) {
+                        // ignore shutdown errors
+                    });
+            } else if (service_sock_) {
+                // plain shutdown
+                service_sock_->shutdown();
+            }
+        } else {
+            if (boost::asio::error::operation_aborted != errc) {
+                spdlog::error(err_str);
+            }
+            close_ses(); // Hard error
+        }
+    }
+
+    void handle_service_read_error(const boost::system::error_code& errc, const std::string_view err_str) {
+        if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc || boost::asio::error::eof == errc) {
+            if (client_sock_.is_tls()) {
+                // async_shutdown exists on Stream
+                client_sock_.async_shutdown(
+                    [self = shared_from_this()]([[maybe_unused]] const auto &errc2) {
+                        // ignore shutdown errors
+                    });
+            } else {
+                // plain shutdown
+                client_sock_.shutdown();
+            }
+        } else {
+            if (boost::asio::error::operation_aborted != errc) {
+                spdlog::error(err_str);
+            }
+            close_ses(); // Hard error
+        }
+    }
+
+    void handle_write_error(const boost::system::error_code& errc, const std::string_view err_str) {
+        if (boost::asio::error::operation_aborted != errc) {
+            spdlog::error(err_str);
+        }
+        close_ses();
+    }
+
     Stream &get_client() {
         return client_sock_;
     }

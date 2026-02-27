@@ -222,23 +222,7 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
             });;
         }
     } else {
-        if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
-            if (service_sock_ && service_sock_->is_tls()) {
-                // async_shutdown exists on Stream
-                service_sock_->async_shutdown(
-                    [self = shared_from_base<HttpSession>()]([[maybe_unused]] const auto &errc2) {
-                        // ignore shutdown errors
-                    });
-            } else if (service_sock_) {
-                // plain shutdown
-                service_sock_->shutdown();
-            }
-        } else {
-            if (boost::asio::error::operation_aborted != errc) {
-                spdlog::error("Reading client header: {}", errc.message());
-            }
-            close_ses(); // Hard error
-        }
+        handle_client_read_error(errc, std::format("Reading client header: {}", errc.message()));
     }
 }
 
@@ -258,10 +242,7 @@ void HttpSession::do_write_service_header(const boost::system::error_code &errc,
         }
         do_upstream();
     } else {
-        if (boost::asio::error::operation_aborted != errc) {
-            spdlog::error("Upstream write header error: {}", errc.message());
-        }
-        close_ses();
+        handle_write_error(errc, std::format("Upstream write header error: {}", errc.message()));
     }
 }
 
@@ -278,20 +259,7 @@ void HttpSession::do_read_client_body(const boost::system::error_code &errc, [[m
                 self->do_write_service_body(errc2, bytes_tf2);
             });
     } else {
-        if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
-            if (service_sock_->is_tls()) {
-                service_sock_->async_shutdown(
-                    [self = shared_from_base<HttpSession>()]([[maybe_unused]] const auto &errc2) {
-                    });
-            } else {
-                service_sock_->shutdown();
-            }
-        } else {
-            if (boost::asio::error::operation_aborted != errc) {
-                spdlog::error("Reading client body: {}", errc.message());
-            }
-            close_ses(); // Hard error
-        }
+        handle_client_read_error(errc, std::format("Reading client body: {}", errc.message()));
     }
 }
 
@@ -310,10 +278,7 @@ void HttpSession::do_write_service_body(const boost::system::error_code &errc, [
 
         do_upstream();
     } else {
-        if (boost::asio::error::operation_aborted != errc) {
-            spdlog::error("Write service body failed: {}", errc.message());
-        }
-        close_ses();
+        handle_write_error(errc, std::format("Write service body failed: {}", errc.message()));
     }
 }
 
@@ -366,20 +331,7 @@ void HttpSession::do_read_service_header(const boost::system::error_code &errc, 
                                             self->do_write_client_header(errc2, bytes_tf2);
                                         });
     } else {
-        if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
-            if (client_sock_.is_tls()) {
-                client_sock_.async_shutdown(
-                    [self = shared_from_base<HttpSession>()]([[maybe_unused]] const auto &errc2) {
-                    });
-            } else {
-                client_sock_.shutdown();
-            }
-        } else {
-            if (boost::asio::error::operation_aborted != errc) {
-                spdlog::error("Reading service header: {}", errc.message());
-            }
-            close_ses(); // Hard error
-        }
+        handle_service_read_error(errc, std::format("Reading service header: {}", errc.message()));
     }
 }
 
@@ -398,10 +350,7 @@ void HttpSession::do_write_client_header(const boost::system::error_code &errc, 
         }
         do_downstream();
     } else {
-        if (boost::asio::error::operation_aborted != errc) {
-            spdlog::error("Downstream write header error: {}", errc.message());
-        }
-        close_ses();
+        handle_write_error(errc, std::format("Downstream write header error: {}", errc.message()));
     }
 }
 
@@ -418,20 +367,7 @@ void HttpSession::do_read_service_body(const boost::system::error_code &errc, [[
                 self->do_write_client_body(errc2, bytes_tf2);
             });
     } else {
-        if (boost::beast::http::error::end_of_stream == errc || boost::asio::ssl::error::stream_truncated == errc) {
-            if (client_sock_.is_tls()) {
-                client_sock_.async_shutdown(
-                    [self = shared_from_base<HttpSession>()]([[maybe_unused]] const auto &errc2) {
-                    });
-            } else {
-                client_sock_.shutdown();
-            }
-        } else {
-            if (boost::asio::error::operation_aborted != errc) {
-                spdlog::error("Reading service body: {}", errc.message());
-            }
-            close_ses(); // Hard error
-        }
+        handle_service_read_error(errc, std::format("Reading service body: {}", errc.message()));
     }
 }
 
@@ -448,10 +384,7 @@ void HttpSession::do_write_client_body(const boost::system::error_code &errc, [[
 
         do_downstream();
     } else {
-        if (boost::asio::error::operation_aborted != errc) {
-            spdlog::error("Write client body failed: {}", errc.message());
-        }
-        close_ses();
+        handle_write_error(errc, std::format("Write client body failed: {}", errc.message()));
     }
 }
 

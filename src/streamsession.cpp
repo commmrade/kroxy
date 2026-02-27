@@ -104,26 +104,7 @@ void StreamSession::do_read_client(const boost::system::error_code &errc, std::s
                 self->do_write_service(errc2, bytes_tf2);
             });
     } else {
-        if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
-            // If we get this, it is signaling the client connection is ready to close, but we may still want to get info from the other socket
-            // Therefore I send a FIn to the service socket, which may flush the output buffers and then close the connection
-            // TLS 1.2 forbids half-closed state, but I hope that servers/clients deal with it themselves, at the same time TLS 1.3 allows half-closed state
-
-            // Calls either ssl::stream::async_shutdown or socket::shutdown
-            if (service_sock_->is_tls()) {
-                service_sock_->async_shutdown(
-                    [self = shared_from_base<StreamSession>()]([[maybe_unused]] const auto &errc2) {
-                    });
-            } else {
-                service_sock_->shutdown();
-            }
-            // After this function is done and we got everything from the other host, session will die by itself
-        } else {
-            if (boost::asio::error::operation_aborted != errc) {
-                spdlog::error("Reading client error: {}", errc.message());
-            }
-            close_ses(); // Hard error
-        }
+        handle_client_read_error(errc, std::format("Reading client error: {}", errc.message()));
     }
 }
 
@@ -136,10 +117,7 @@ void StreamSession::do_write_service(const boost::system::error_code &errc, std:
 
         do_upstream();
     } else {
-        if (boost::asio::error::operation_aborted != errc) {
-            spdlog::error("Service writing error: {}", errc.message());
-        }
-        close_ses();
+        handle_write_error(errc, std::format("Service writing error: {}", errc.message()));
     }
 }
 
@@ -167,20 +145,7 @@ void StreamSession::do_read_service(const boost::system::error_code &errc, std::
                                      self->do_write_client(errc2, bytes_tf2);
                                  });
     } else {
-        if (boost::asio::error::eof == errc || boost::asio::ssl::error::stream_truncated == errc) {
-            if (client_sock_.is_tls()) {
-                client_sock_.async_shutdown(
-                    [self = shared_from_base<StreamSession>()]([[maybe_unused]] const auto &errc2) {
-                    });
-            } else {
-                client_sock_.shutdown();
-            }
-        } else {
-            if (boost::asio::error::operation_aborted != errc) {
-                spdlog::error("Reading service error: {}", errc.message());
-            }
-            close_ses(); // Hard error
-        }
+        handle_service_read_error(errc, std::format("Reading service error: {}", errc.message()));
     }
 }
 
@@ -193,10 +158,7 @@ void StreamSession::do_write_client(const boost::system::error_code &errc, std::
 
         do_downstream();
     } else {
-        if (boost::asio::error::operation_aborted != errc) {
-            spdlog::error("Client writing error: {}", errc.message());
-        }
-        close_ses();
+        handle_write_error(errc, std::format("Client writing error: {}", errc.message()));
     }
 }
 
