@@ -16,10 +16,10 @@ HttpSession::HttpSession(boost::asio::io_context &ctx,
 }
 
 void HttpSession::run() {
-    start_time_.emplace(std::chrono::high_resolution_clock::now());
-    client_addr_.emplace(client_sock_.socket().remote_endpoint().address());
-    bytes_sent_us_.emplace(0);
-    bytes_sent_ds_.emplace(0);
+    log_ctx_.start_time.emplace(std::chrono::high_resolution_clock::now());
+    log_ctx_.client_addr.emplace(client_sock_.socket().remote_endpoint().address());
+    log_ctx_.bytes_sent_us.emplace(0);
+    log_ctx_.bytes_sent_ds.emplace(0);
 
     do_upstream();
 }
@@ -43,49 +43,49 @@ void HttpSession::process_headers(boost::beast::http::request<boost::beast::http
 
 
 void HttpSession::check_log() {
-    if (bytes_sent_us_.has_value() && bytes_sent_ds_.has_value() && start_time_.has_value() && request_uri_.has_value() && http_status_.has_value()
-        && user_agent_.has_value() && request_method_.has_value() && client_addr_.has_value()) {
-        log();
+    if (log_ctx_.bytes_sent_us.has_value() && log_ctx_.bytes_sent_ds.has_value() && log_ctx_.start_time.has_value() && log_ctx_.request_uri.has_value() && log_ctx_.http_status.has_value()
+        && log_ctx_.user_agent.has_value() && log_ctx_.request_method.has_value() && log_ctx_.client_addr.has_value()) {
+        log_and_reset();
     }
 }
 
-void HttpSession::log() {
+void HttpSession::log_and_reset() {
     if (logger_.has_value()) {
         std::string log_msg = cfg_.format_log.format;
         for (const auto var: cfg_.format_log.used_vars) {
             switch (var) {
                 case LogFormat::Variable::CLIENT_ADDR: {
-                    replace_variable(log_msg, var, client_addr_.value().to_string());
+                    replace_variable(log_msg, var, log_ctx_.client_addr.value().to_string());
                     break;
                 }
                 case LogFormat::Variable::BYTES_SENT_UPSTREAM: {
-                    replace_variable(log_msg, var, std::to_string(bytes_sent_us_.value()));;
+                    replace_variable(log_msg, var, std::to_string(log_ctx_.bytes_sent_us.value()));;
                     break;
                 }
                 case LogFormat::Variable::BYTES_SENT_DOWNSTREAM: {
-                    replace_variable(log_msg, var, std::to_string(bytes_sent_ds_.value()));;
+                    replace_variable(log_msg, var, std::to_string(log_ctx_.bytes_sent_ds.value()));;
                     break;
                 }
                 case LogFormat::Variable::PROCESSING_TIME: {
                     auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::high_resolution_clock::now() - start_time_.value());
+                        std::chrono::high_resolution_clock::now() - log_ctx_.start_time.value());
                     replace_variable(log_msg, var, std::format("{}ms", diff.count()));
                     break;
                 }
                 case LogFormat::Variable::REQUEST_URI: {
-                    replace_variable(log_msg, var, request_uri_.value());
+                    replace_variable(log_msg, var, log_ctx_.request_uri.value());
                     break;
                 }
                 case LogFormat::Variable::STATUS: {
-                    replace_variable(log_msg, var, std::to_string(http_status_.value()));
+                    replace_variable(log_msg, var, std::to_string(log_ctx_.http_status.value()));
                     break;
                 }
                 case LogFormat::Variable::HTTP_USER_AGENT: {
-                    replace_variable(log_msg, var, user_agent_.value());
+                    replace_variable(log_msg, var, log_ctx_.user_agent.value());
                     break;
                 }
                 case LogFormat::Variable::REQUEST_METHOD: {
-                    replace_variable(log_msg, var, request_method_.value());
+                    replace_variable(log_msg, var, log_ctx_.request_method.value());
                     break;
                 }
                 default: {
@@ -96,14 +96,7 @@ void HttpSession::log() {
         logger_.value().write(log_msg);
 
         // These are set only here
-        bytes_sent_us_.emplace(0);
-        bytes_sent_ds_.emplace(0);
-
-        start_time_.reset();
-        request_uri_.reset();
-        request_method_.reset();
-        http_status_.reset();
-        user_agent_.reset();
+        log_ctx_.reset();
     }
 }
 
@@ -309,12 +302,12 @@ void HttpSession::handle_service(
 void HttpSession::do_read_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
     if (!errc) {
         auto &msg = request_p_.value().get();
-        request_uri_.emplace(msg.base().target());
-        request_method_.emplace(msg.base().method_string());
+        log_ctx_.request_uri.emplace(msg.base().target());
+        log_ctx_.request_method.emplace(msg.base().method_string());
         if (auto it = msg.find(boost::beast::http::field::user_agent); it != msg.end()) {
-            user_agent_.emplace(it->value());
+            log_ctx_.user_agent.emplace(it->value());
         } else {
-            user_agent_.emplace();
+            log_ctx_.user_agent.emplace();
         }
 
         request_s_.emplace(msg);
@@ -357,7 +350,7 @@ void HttpSession::do_read_client_header(const boost::system::error_code &errc, [
 void HttpSession::do_write_service_header(const boost::system::error_code &errc,
                                           [[maybe_unused]] std::size_t bytes_tf) {
     if (!errc) {
-        bytes_sent_us_.value() += bytes_tf;
+        log_ctx_.bytes_sent_us.value() += bytes_tf;
 
         if (!request_p_->is_done()) {
             upstream_state_ = State::BODY;
@@ -408,7 +401,7 @@ void HttpSession::do_read_client_body(const boost::system::error_code &errc, [[m
 
 void HttpSession::do_write_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
     if (errc == boost::beast::http::error::need_buffer || !errc) {
-        bytes_sent_us_.value() += bytes_tf;
+        log_ctx_.bytes_sent_us.value() += bytes_tf;
 
         if (request_p_->is_done() && request_s_->is_done()) {
             check_log();
@@ -433,7 +426,7 @@ void HttpSession::do_upstream() {
         case State::HEADERS: {
             request_p_.emplace();
             upstream_buf_.clear();
-            start_time_.emplace(std::chrono::high_resolution_clock::now());
+            log_ctx_.start_time.emplace(std::chrono::high_resolution_clock::now());
 
             prepare_timer(upstream_timer_, WaitState::CLIENT_HEADER, cfg_.client_header_timeout_ms);
             // TODO: FIX IT: Session waits for headers even if the previous request was Conn: close
@@ -466,7 +459,7 @@ void HttpSession::do_upstream() {
 void HttpSession::do_read_service_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
     if (!errc) {
         auto &msg = response_p_.value().get();
-        http_status_.emplace(static_cast<unsigned int>(msg.base().result()));
+        log_ctx_.http_status.emplace(static_cast<unsigned int>(msg.base().result()));
 
         response_s_.emplace(msg);
 
@@ -496,7 +489,7 @@ void HttpSession::do_read_service_header(const boost::system::error_code &errc, 
 
 void HttpSession::do_write_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
     if (!errc) {
-        bytes_sent_ds_.value() += bytes_tf;
+        log_ctx_.bytes_sent_ds.value() += bytes_tf;
 
         // Now we need to start reading the body, considering we may have body bytes in upstream_buf_
         if (!response_p_->is_done()) {
@@ -548,7 +541,7 @@ void HttpSession::do_read_service_body(const boost::system::error_code &errc, [[
 
 void HttpSession::do_write_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
     if (boost::beast::http::error::need_buffer == errc || !errc) {
-        bytes_sent_ds_.value() += bytes_tf;
+        log_ctx_.bytes_sent_ds.value() += bytes_tf;
 
         if (response_p_->is_done() && response_s_->is_done()) {
             check_log();

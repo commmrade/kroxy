@@ -52,7 +52,7 @@ public:
 private:
     void check_log();
 
-    void log();
+    void log_and_reset();
 
     void handle_service([[maybe_unused]] const boost::beast::http::message<true, boost::beast::http::buffer_body> &msg);
 
@@ -83,15 +83,32 @@ private:
     Host current_host_;
 
     // Logging stuff
-    std::optional<boost::asio::ip::address> client_addr_;
-    std::optional<std::size_t> bytes_sent_us_;
-    std::optional<std::size_t> bytes_sent_ds_;
-    std::optional<std::chrono::time_point<std::chrono::system_clock> > start_time_;
-    std::optional<std::string> request_uri_;
-    std::optional<std::string> request_method_;
-    std::optional<unsigned int> http_status_;
-    std::optional<std::string> user_agent_;
+    struct LogContext {
+        std::optional<boost::asio::ip::address> client_addr;
+        std::optional<std::size_t> bytes_sent_us;
+        std::optional<std::size_t> bytes_sent_ds;
+        std::optional<std::chrono::time_point<std::chrono::system_clock> > start_time;
+        std::optional<std::string> request_uri;
+        std::optional<std::string> request_method;
+        std::optional<unsigned int> http_status;
+        std::optional<std::string> user_agent;
+
+        void reset() {
+            bytes_sent_us.emplace(0);
+            bytes_sent_ds.emplace(0);
+
+            start_time.reset();
+            request_uri.reset();
+            request_method.reset();
+            http_status.reset();
+            user_agent.reset();
+        }
+    };
+    LogContext log_ctx_;
 };
+
+
+
 
 static constexpr std::string_view ADDR_HEADER_VAR = "$addr";
 static constexpr std::string_view HOST_HEADER_VAR = "$host";

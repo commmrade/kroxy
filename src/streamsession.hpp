@@ -43,7 +43,7 @@ public:
 
 private:
     void check_log();
-    void log();
+    void log_and_reset();
 
     void handle_service();
 
@@ -56,8 +56,11 @@ private:
 
 
     // Logging stuff
-    std::optional<boost::asio::ip::address> client_addr_;
-    std::optional<std::size_t> bytes_sent_us_;
-    std::optional<std::size_t> bytes_sent_ds_;
-    std::optional<std::chrono::time_point<std::chrono::system_clock> > start_time_;
+    struct LogContext {
+        std::optional<boost::asio::ip::address> client_addr;
+        std::optional<std::size_t> bytes_sent_us;
+        std::optional<std::size_t> bytes_sent_ds;
+        std::optional<std::chrono::time_point<std::chrono::system_clock> > start_time;
+    };
+    LogContext log_ctx_;
 };
