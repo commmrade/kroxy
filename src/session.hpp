@@ -72,7 +72,7 @@ public:
         session_idx_.emplace(idx);
         current_host_.emplace(host);
 
-        bool const host_is_tls = upstream_options.proxy_tls_enabled.value_or(cfg_.proxy_tls_enabled.value_or(false));
+        bool const host_is_tls = cfg_.proxy_tls_enabled.value_or(upstream_options.proxy_tls_enabled.value_or(false));
 
         auto resolver = std::make_shared<boost::asio::ip::tcp::resolver>(client_sock_.socket().get_executor());
 
@@ -80,16 +80,16 @@ public:
         auto &ioc = static_cast<boost::asio::io_context &>(exec.context());
 
         auto service_ssl_ctx = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_client);
-        service_ssl_ctx->set_default_verify_paths();
-        if (upstream_options.proxy_tls_verify.value_or(cfg_.proxy_tls_verify.value_or(false))) {
+        if (cfg_.proxy_tls_verify.value_or(upstream_options.proxy_tls_verify.value_or(false))) {
+            service_ssl_ctx->set_default_verify_paths();
             service_ssl_ctx->set_verify_mode(boost::asio::ssl::verify_peer);
         }
-        if ((upstream_options.proxy_tls_cert_path.has_value() && upstream_options.proxy_tls_key_path.has_value()) || (
-                cfg_.proxy_tls_cert_path.has_value() && cfg_.proxy_tls_key_path.has_value())) {
+        if ((cfg_.proxy_tls_cert_path.has_value() && cfg_.proxy_tls_key_path.has_value()) || (
+                upstream_options.proxy_tls_cert_path.has_value() && upstream_options.proxy_tls_key_path.has_value())) {
             service_ssl_ctx->use_certificate_chain_file(
-                upstream_options.proxy_tls_cert_path.value_or(cfg_.proxy_tls_cert_path.value()));
+                cfg_.proxy_tls_cert_path.value_or(upstream_options.proxy_tls_cert_path.value()));
             service_ssl_ctx->use_private_key_file(
-                upstream_options.proxy_tls_key_path.value_or(cfg_.proxy_tls_key_path.value()),
+                cfg_.proxy_tls_key_path.value_or(upstream_options.proxy_tls_key_path.value()),
                 boost::asio::ssl::context::file_format::pem);
         }
         service_sock_ = std::make_unique<Stream>(ioc, std::move(service_ssl_ctx), host_is_tls);
