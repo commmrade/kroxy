@@ -6,6 +6,26 @@
 #include <print>
 #include <iostream>
 
+Upstream::Upstream(UpstreamOptions&& options) : options_(std::move(options)) {
+    // Even if TLS is disabled we should create this, since Stream constructor requires a valid ssl::context
+    ssl_context_ = std::make_shared<boost::asio::ssl::context>(boost::asio::ssl::context::tls_client);
+
+    if (options_.proxy_tls_enabled.value_or(false)) {
+        if (options_.proxy_tls_verify.value_or(false)) {
+            ssl_context_->set_default_verify_paths();
+            ssl_context_->set_verify_mode(boost::asio::ssl::verify_peer);
+        }
+
+        if (options_.proxy_tls_cert_path.has_value() && options_.proxy_tls_key_path.has_value()) {
+            ssl_context_->use_certificate_chain_file(
+                options_.proxy_tls_cert_path.value());
+            ssl_context_->use_private_key_file(
+                options_.proxy_tls_key_path.value(),
+                boost::asio::ssl::context::file_format::pem);
+        }
+    }
+}
+
 std::pair<Host, std::size_t> LeastConnectionUpstream::select_host([[maybe_unused]] const BalancerData &data) {
     if (conns_.empty()) {
         conns_.resize(hosts_.size(), 0);

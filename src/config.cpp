@@ -5,6 +5,7 @@
 
 #include "upstream.hpp"
 #include <print>
+#include <spdlog/spdlog.h>
 
 std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format) {
     std::unordered_set<LogFormat::Variable> result;
@@ -88,42 +89,39 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
         for (const auto &serv_block: servers_obj.getMemberNames()) {
             const auto &block = servers_obj[serv_block];
 
-            std::optional<bool> proxy_tls_enabled;
-            std::optional<bool> proxy_tls_verify;
-            std::optional<std::string> proxy_tls_cert_path;
-            std::optional<std::string> proxy_tls_key_path;
+            std::optional<bool> proxy_tls_enabled_opt;
+            std::optional<bool> proxy_tls_verify_opt;
+            std::optional<std::string> proxy_tls_cert_path_opt;
+            std::optional<std::string> proxy_tls_key_path_opt;
 
-            // TODO: BETTER HANDLING LIKETHIS:
-            // if (serv_obj.isMember("proxy_tls_enabled")) {
-            //     cfg.proxy_tls_enabled = serv_obj.get("proxy_tls_enabled", false).asBool();
-            //     if (cfg.proxy_tls_enabled) {
-            //         std::string proxy_tls_cert_path = serv_obj.get("proxy_tls_cert_path", "").asString();
-            //         std::string proxy_tls_key_path = serv_obj.get("proxy_tls_key_path", "").asString();
-            //         if (proxy_tls_cert_path.empty() || proxy_tls_key_path.empty()) {
-            //             throw std::runtime_error("TLS Proxy Invalid certificate/key path");
-            //         }
-            //
-            //         cfg.proxy_tls_cert_path.emplace(std::move(proxy_tls_cert_path));
-            //         cfg.proxy_tls_key_path.emplace(std::move(proxy_tls_key_path));
-            //
-            //         if (serv_obj.isMember("proxy_tls_verify")) {
-            //             cfg.proxy_tls_verify = serv_obj.get("proxy_tls_verify", false).asBool();
-            //         }
-            //     }
-            // }
             if (block.isMember("proxy_tls_enabled")) {
-                proxy_tls_enabled = block["proxy_tls_enabled"].asBool();
+                proxy_tls_enabled_opt = block["proxy_tls_enabled"].asBool();
             }
+
+            auto is_proxy_tls_enabled = proxy_tls_enabled_opt.value_or(false);
             if (block.isMember("proxy_tls_verify")) {
-                proxy_tls_verify = block["proxy_tls_verify"].asBool();
+                if (is_proxy_tls_enabled) {
+                    proxy_tls_verify_opt = block["proxy_tls_verify"].asBool();
+                } else {
+                    spdlog::warn("proxy_tls_verify option does not work without proxy_tls_enabled set to true");
+                }
             }
             if (block.isMember("proxy_tls_cert_path")) {
-                proxy_tls_cert_path = block["proxy_tls_cert_path"].asString();
+                if (is_proxy_tls_enabled) {
+                    proxy_tls_cert_path_opt = block["proxy_tls_cert_path"].asString();
+                } else {
+                    spdlog::warn("proxy_tls_cert_path option does not work without proxy_tls_enabled set to true");
+                }
             }
             if (block.isMember("proxy_tls_key_path")) {
-                proxy_tls_key_path = block["proxy_tls_key_path"].asString();
+                if (is_proxy_tls_enabled) {
+                    proxy_tls_key_path_opt = block["proxy_tls_key_path"].asString();
+                } else {
+                    spdlog::warn("proxy_tls_key_path option does not work without proxy_tls_enabled set to true");
+                }
             }
 
+            // TODO: HOST DOES NOT WORK FOR STREAM SESSION
             LoadBalancingAlgo const algo = [&block]() -> LoadBalancingAlgo {
                 std::string const algo_str = block["balancing_algo"].asString();
                 if (algo_str == "first") {
@@ -142,10 +140,10 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
             }();
 
             UpstreamOptions opts;
-            opts.proxy_tls_enabled = proxy_tls_enabled;
-            opts.proxy_tls_verify = proxy_tls_verify;
-            opts.proxy_tls_cert_path = proxy_tls_cert_path;
-            opts.proxy_tls_key_path = proxy_tls_key_path;
+            opts.proxy_tls_enabled = proxy_tls_enabled_opt;
+            opts.proxy_tls_verify = proxy_tls_verify_opt;
+            opts.proxy_tls_cert_path = proxy_tls_cert_path_opt;
+            opts.proxy_tls_key_path = proxy_tls_key_path_opt;
 
             std::shared_ptr<Upstream> upstream;
 
