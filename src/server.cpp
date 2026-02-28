@@ -34,7 +34,6 @@ void Server::setup_socket(boost::asio::io_context &ctx, unsigned short port) {
 
     acceptor_.set_option(boost::asio::ip::tcp::socket::reuse_address{true});
 
-    const boost::asio::ip::tcp::resolver resolver{ctx};
     acceptor_.bind(boost::asio::ip::tcp::endpoint{boost::asio::ip::tcp::v4(), port});
 
     acceptor_.listen();
