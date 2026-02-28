@@ -1,7 +1,15 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
+
+#include "logger.hpp"
 #include "../src/config.hpp"
+
+TEST(StringReplace, SeveralSameVars) {
+    std::string s{" $bytes_sent_upstream and $bytes_sent_upstream lol $bytes_sent_upstream"};
+    replace_variable(s, LogFormat::Variable::BYTES_SENT_UPSTREAM, "109");
+    ASSERT_EQ(s, " 109 and 109 lol 109");
+}
 
 TEST(VariableConversion, VarToStr) {
     using Var = LogFormat::Variable;

@@ -16,10 +16,14 @@ Logger::~Logger() {
     close(m_file);
 }
 
+
+
 void replace_variable(std::string &log_msg, LogFormat::Variable var, const std::string &replace_to) {
     const std::string var_name = '$' + LogFormat::variable_to_string(var);
-    const auto var_pos = log_msg.find(var_name);
-    log_msg.replace(var_pos, var_name.size(), replace_to);
+    std::size_t var_pos = 0;
+    while ((var_pos = log_msg.find(var_name)) != std::string::npos) {
+        log_msg.replace(var_pos, var_name.size(), replace_to);
+    }
 }
 
 void Logger::write(std::string_view msg) {
