@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <filesystem>
+#include <fstream>
 #include "../src/config.hpp"
 
 TEST(VariableConversion, VarToStr) {
@@ -6,7 +8,8 @@ TEST(VariableConversion, VarToStr) {
 
     // Common variables
     ASSERT_EQ(LogFormat::variable_to_string(Var::CLIENT_ADDR), "client_addr");
-    ASSERT_EQ(LogFormat::variable_to_string(Var::BYTES_SENT), "bytes_sent");
+    ASSERT_EQ(LogFormat::variable_to_string(Var::BYTES_SENT_UPSTREAM), "bytes_sent_upstream");
+    ASSERT_EQ(LogFormat::variable_to_string(Var::BYTES_SENT_DOWNSTREAM), "bytes_sent_downstream");
     ASSERT_EQ(LogFormat::variable_to_string(Var::PROCESSING_TIME), "processing_time");
 
     // HTTP specific
@@ -21,7 +24,8 @@ TEST(VariableConversion, StrToVar) {
 
     // Common variables
     ASSERT_EQ(LogFormat::string_to_variable("client_addr"), Var::CLIENT_ADDR);
-    ASSERT_EQ(LogFormat::string_to_variable("bytes_sent"), Var::BYTES_SENT);
+    ASSERT_EQ(LogFormat::string_to_variable("bytes_sent_upstream"), Var::BYTES_SENT_UPSTREAM);
+    ASSERT_EQ(LogFormat::string_to_variable("bytes_sent_downstream"), Var::BYTES_SENT_DOWNSTREAM);
     ASSERT_EQ(LogFormat::string_to_variable("processing_time"), Var::PROCESSING_TIME);
 
     // HTTP specific
@@ -50,16 +54,16 @@ TEST(FormatParsing, OneVarInvalid) {
 }
 
 TEST(FormatParsing, SeveralVars) {
-    auto res = parse_variables("$client_addr $bytes_sent $http_user_agent");
+    auto res = parse_variables("$client_addr $bytes_sent_upstream $http_user_agent");
     ASSERT_TRUE(res.contains(LogFormat::Variable::CLIENT_ADDR));
-    ASSERT_TRUE(res.contains(LogFormat::Variable::BYTES_SENT));
+    ASSERT_TRUE(res.contains(LogFormat::Variable::BYTES_SENT_UPSTREAM));
     ASSERT_TRUE(res.contains(LogFormat::Variable::HTTP_USER_AGENT));
 }
 
 TEST(FormatParsing, SeveralVarsNoSpace) {
-    auto res = parse_variables("$client_addr$bytes_sent$http_user_agent");
+    auto res = parse_variables("$client_addr$bytes_sent_downstream$http_user_agent");
     ASSERT_TRUE(res.contains(LogFormat::Variable::CLIENT_ADDR));
-    ASSERT_TRUE(res.contains(LogFormat::Variable::BYTES_SENT));
+    ASSERT_TRUE(res.contains(LogFormat::Variable::BYTES_SENT_DOWNSTREAM));
     ASSERT_TRUE(res.contains(LogFormat::Variable::HTTP_USER_AGENT));
 }
 
@@ -72,82 +76,38 @@ TEST(FormatParsing, EmptyFormat) {
     ASSERT_TRUE(res.empty());
 }
 
-static inline Config parse_config_from_string(std::string_view text) {
-    Json::Value json;
-    Json::CharReaderBuilder const builder;
-    JSONCPP_STRING errs;
-
-    std::istringstream iss{std::string(text)};
-    if (!Json::parseFromStream(builder, iss, &json, &errs)) {
-        throw std::runtime_error("Was unable to parse JSON config");
-    }
-
-    if (!json.isObject()) {
-        throw std::runtime_error("Root JSON is not an object");
-    }
-
-    Config result;
-
-    if (json.isMember("stream")) {
-        result.server_config = parse_stream(json["stream"]);
-    } else if (json.isMember("http")) {
-        result.server_config = parse_http(json["http"]);
-    } else {
-        throw std::runtime_error{"Server configuration not found"};
-    }
-
-    auto servers_obj = json["servers"];
-    if (servers_obj.isObject() && !servers_obj.empty()) {
-        for (const auto &serv_block: servers_obj.getMemberNames()) {
-            const auto &block = servers_obj[serv_block];
-            for (const auto &host: block) {
-                auto host_str = host["host"].asString();
-                auto port = host["port"].asInt();
-                auto tls_enabled = host["tls_enabled"].asBool();
-
-                result.servers.servers[serv_block]
-                    .emplace_back(host_str, port, tls_enabled);
-            }
-        }
-    } else {
-        throw std::runtime_error("Servers block is empty");
-    }
-
-    if (!result.servers.servers.contains(result.get_proxy_to())) {
-        throw std::runtime_error("Incorrect pass to was supplied. Such server does not exist");
-    }
-
-
-    return result;
-}
 
 TEST(StreamConfig, NoServers) {
-    const char* config_no_servers = R"json(
+    const char *config_no_servers = R"json(
     {
       "stream": {
         "port": 8080,
-        "timeout_ms": 500,
         "proxy_to": "google"
       }
     }
     )json";
 
+    const std::filesystem::path path{"test_stream_no_servers.json"};
+    std::ofstream file(path, std::ios_base::trunc);
+    file << config_no_servers;
+
     EXPECT_THROW(
-        parse_config_from_string(config_no_servers),
+        parse_config(path),
         std::runtime_error
     );
 }
 
 TEST(StreamConfig, EmptyPassTo) {
-    const char* config_no_proxy_to = R"json(
+    const char *config_no_proxy_to = R"json(
     {
-      "servers": {
-        "google": [
-          { "host": "google.com", "port": 80 }
-        ]
-      },
-
       "stream": {
+        "servers": {
+          "google": {
+            "hosts": [
+              { "host": "google.com", "port": 80 }
+            ]
+          }
+        },
         "port": 8080,
         "timeout_ms": 500,
 
@@ -160,19 +120,24 @@ TEST(StreamConfig, EmptyPassTo) {
       }
     }
     )json";
-    EXPECT_ANY_THROW(parse_config_from_string(config_no_proxy_to));
+    const std::filesystem::path path{"test_stream_empty_pass_to.json"};
+    std::ofstream file(path, std::ios_base::trunc);
+    file << config_no_proxy_to;
+
+    EXPECT_ANY_THROW(parse_config(path));
 }
 
 TEST(StreamConfig, IncorrectPassTo) {
-    const char* config_no_proxy_to = R"json(
+    const char *config_no_proxy_to = R"json(
     {
-      "servers": {
-        "google": [
-          { "host": "google.com", "port": 80 }
-        ]
-      },
-
       "stream": {
+        "servers": {
+          "google": {
+            "hosts": [
+              { "host": "google.com", "port": 80 }
+            ]
+          }
+        },
         "port": 8080,
         "timeout_ms": 500,
         "proxy_to": "goggles",
@@ -182,38 +147,50 @@ TEST(StreamConfig, IncorrectPassTo) {
       }
     }
     )json";
-    EXPECT_ANY_THROW(parse_config_from_string(config_no_proxy_to));
+    const std::filesystem::path path{"test_stream_incorrect_pass_to.json"};
+    std::ofstream file(path, std::ios_base::trunc);
+    file << config_no_proxy_to;
+
+    EXPECT_ANY_THROW(parse_config(path));
 }
 
 TEST(StreamConfig, TlsEnabledWithCerts) {
-    const char* full_stream_config = R"json(
+    const char *full_stream_config = R"json(
     {
-      "servers": {
-        "google": [{ "host": "google.com", "port": 80 }]
-      },
-
       "stream": {
+        "servers": {
+          "google": {
+            "hosts": [{ "host": "google.com", "port": 80 }]
+          }
+        },
         "port": 8080,
         "timeout_ms": 500,
         "proxy_to": "google",
 
         "tls_enabled": true,
         "tls_cert_path": "../tls/certificate.crt",
-        "tls_key_path": "../tls/private.key",
+        "tls_key_path": "../tls/private.key"
       }
     }
     )json";
-    ASSERT_NO_THROW(parse_config_from_string(full_stream_config));
+    const std::filesystem::path path{"test_stream_tls_with_certs.json"};
+    {
+        std::ofstream file(path, std::ios_base::trunc);
+        file << full_stream_config;
+    }
+
+    ASSERT_NO_THROW(parse_config(path));
 }
 
 TEST(StreamConfig, TlsEnabledNoCerts) {
-    const char* full_stream_config = R"json(
+    const char *full_stream_config = R"json(
     {
-      "servers": {
-        "google": [{ "host": "google.com", "port": 80 }]
-      },
-
       "stream": {
+        "servers": {
+          "google": {
+            "hosts": [{ "host": "google.com", "port": 80 }]
+          }
+        },
         "port": 8080,
         "timeout_ms": 500,
         "proxy_to": "google",
@@ -222,11 +199,15 @@ TEST(StreamConfig, TlsEnabledNoCerts) {
       }
     }
     )json";
-    ASSERT_ANY_THROW(parse_config_from_string(full_stream_config));
+    const std::filesystem::path path{"test_stream_tls_no_certs.json"};
+    std::ofstream file(path, std::ios_base::trunc);
+    file << full_stream_config;
+
+    ASSERT_ANY_THROW(parse_config(path));
 }
 
 TEST(HttpConfig, NoServers) {
-    const char* config_no_servers = R"json(
+    const char *config_no_servers = R"json(
     {
       "http": {
         "port": 8080,
@@ -236,22 +217,24 @@ TEST(HttpConfig, NoServers) {
     }
     )json";
 
-    EXPECT_THROW(
-        parse_config_from_string(config_no_servers),
-        std::runtime_error
-    );
+    const std::filesystem::path path{"test_http_no_servers.json"};
+    std::ofstream file(path, std::ios_base::trunc);
+    file << config_no_servers;
+
+    EXPECT_THROW(parse_config(path), std::runtime_error);
 }
 
 TEST(HttpConfig, EmptyPassTo) {
-    const char* config_no_proxy_to = R"json(
+    const char *config_no_proxy_to = R"json(
     {
-      "servers": {
-        "google": [
-          { "host": "google.com", "port": 80 }
-        ]
-      },
-
       "http": {
+        "servers": {
+          "google": {
+            "hosts": [
+              { "host": "google.com", "port": 80 }
+            ]
+          }
+        },
         "port": 8080,
         "timeout_ms": 500,
 
@@ -264,19 +247,24 @@ TEST(HttpConfig, EmptyPassTo) {
       }
     }
     )json";
-    EXPECT_ANY_THROW(parse_config_from_string(config_no_proxy_to));
+    const std::filesystem::path path{"test_http_empty_pass_to.json"};
+    std::ofstream file(path, std::ios_base::trunc);
+    file << config_no_proxy_to;
+
+    EXPECT_ANY_THROW(parse_config(path));
 }
 
 TEST(HttpConfig, IncorrectPassTo) {
-    const char* config_no_proxy_to = R"json(
+    const char *config_no_proxy_to = R"json(
     {
-      "servers": {
-        "google": [
-          { "host": "google.com", "port": 80 }
-        ]
-      },
-
       "http": {
+        "servers": {
+          "google": {
+            "hosts": [
+              { "host": "google.com", "port": 80 }
+            ]
+          }
+        },
         "port": 8080,
         "timeout_ms": 500,
         "proxy_to": "goggles",
@@ -286,38 +274,50 @@ TEST(HttpConfig, IncorrectPassTo) {
       }
     }
     )json";
-    EXPECT_ANY_THROW(parse_config_from_string(config_no_proxy_to));
+    const std::filesystem::path path{"test_http_incorrect_pass_to.json"};
+    std::ofstream file(path, std::ios_base::trunc);
+    file << config_no_proxy_to;
+
+    EXPECT_ANY_THROW(parse_config(path));
 }
 
 TEST(HttpConfig, TlsEnabledWithCerts) {
-    const char* full_stream_config = R"json(
+    const char *full_stream_config = R"json(
     {
-      "servers": {
-        "google": [{ "host": "google.com", "port": 80 }]
-      },
-
       "http": {
+        "servers": {
+          "google": {
+            "hosts": [{ "host": "google.com", "port": 80 }]
+          }
+        },
         "port": 8080,
         "timeout_ms": 500,
         "proxy_to": "google",
 
         "tls_enabled": true,
         "tls_cert_path": "../tls/certificate.crt",
-        "tls_key_path": "../tls/private.key",
+        "tls_key_path": "../tls/private.key"
       }
     }
     )json";
-    ASSERT_NO_THROW(parse_config_from_string(full_stream_config));
+    const std::filesystem::path path{"test_http_tls_with_certs.json"};
+    {
+        std::ofstream file(path, std::ios_base::trunc);
+        file << full_stream_config;
+    }
+
+    ASSERT_NO_THROW(parse_config(path));
 }
 
 TEST(HttpConfig, TlsEnabledNoCerts) {
-    const char* full_stream_config = R"json(
+    const char *full_stream_config = R"json(
     {
-      "servers": {
-        "google": [{ "host": "google.com", "port": 80 }]
-      },
-
       "http": {
+        "servers": {
+          "google": {
+            "hosts": [{ "host": "google.com", "port": 80 }]
+          }
+        },
         "port": 8080,
         "timeout_ms": 500,
         "proxy_to": "google",
@@ -326,5 +326,9 @@ TEST(HttpConfig, TlsEnabledNoCerts) {
       }
     }
     )json";
-    ASSERT_ANY_THROW(parse_config_from_string(full_stream_config));
+    const std::filesystem::path path{"test_http_tls_no_certs.json"};
+    std::ofstream file(path, std::ios_base::trunc);
+    file << full_stream_config;
+
+    ASSERT_ANY_THROW(parse_config(path));
 }

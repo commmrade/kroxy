@@ -227,7 +227,7 @@ Config parse_config(const std::filesystem::path &path) {
     Json::CharReaderBuilder const builder;
     JSONCPP_STRING errs;
     if (!Json::parseFromStream(builder, file, &json, &errs)) {
-        throw std::runtime_error("Was unable to parse JSON config");
+        throw std::runtime_error(std::format("Was unable to parse JSON config: {}", errs));
     }
     assert(json.isObject());
 

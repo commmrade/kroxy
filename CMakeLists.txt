@@ -129,6 +129,14 @@ if(KROXY_BUILD_TESTS)
 
     add_executable(kroxy_test
             tests/test_config.cpp
+
+            src/logger.cpp
+            src/server.cpp
+            src/upstream.cpp
+            src/config.cpp
+            src/httpsession.cpp
+            src/streamsession.cpp
+            src/worker.cpp
             # add more test files here as they appear
     )
 
@@ -140,6 +148,10 @@ if(KROXY_BUILD_TESTS)
             OpenSSL::Crypto
             PkgConfig::LIBURING
             PkgConfig::JSONCPP
+            argparse::argparse
+            spdlog::spdlog
+
+#            $<TARGET_OBJECTS:kroxy>
             # If tests need parts of the real implementation:
             # $<TARGET_OBJECTS:kroxy>   # ← object library trick (advanced)
     )
@@ -149,7 +161,7 @@ if(KROXY_BUILD_TESTS)
     # Reuse same strict warnings
     target_compile_options(kroxy_test PRIVATE
             $<$<COMPILE_LANGUAGE:CXX>:
-            -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion ...
+            -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
             >
     )
 
