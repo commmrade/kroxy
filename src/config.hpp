@@ -164,7 +164,7 @@ std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format)
 
 HttpConfig parse_http(const Json::Value &http_obj);
 
-void parse_common(CommonConfig &cfg, const Json::Value &serv_obj);
+void parse_common(CommonConfig &cfg, const Json::Value &serv_obj, const std::string_view serv_type);
 
 StreamConfig parse_stream(const Json::Value &stream_obj);
 

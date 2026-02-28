@@ -32,7 +32,7 @@ std::unordered_set<LogFormat::Variable> parse_variables(std::string_view format)
     return result;
 }
 
-void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
+void parse_common(CommonConfig &cfg, const Json::Value &serv_obj, const std::string_view serv_type) {
     if (serv_obj.empty()) {
         throw std::runtime_error("Empty server object");
     }
@@ -75,7 +75,6 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
             }
         }
     }
-
 
     // Logs stuff
     if (serv_obj.isMember("file_log")) {
@@ -121,7 +120,6 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
                 }
             }
 
-            // TODO: HOST DOES NOT WORK FOR STREAM SESSION
             LoadBalancingAlgo const algo = [&block]() -> LoadBalancingAlgo {
                 std::string const algo_str = block["balancing_algo"].asString();
                 if (algo_str == "first") {
@@ -161,6 +159,9 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
                     break;
                 }
                 case LoadBalancingAlgo::HOST: {
+                    if (serv_type == "stream") {
+                        throw std::runtime_error("stream server does not support Load Balancing by Host");
+                    }
                     upstream = std::make_shared<HostBasedUpstream>(std::move(opts));
                     break;
                 }
@@ -173,8 +174,8 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj) {
             for (const auto &host: block["hosts"]) {
                 auto host_str = host["host"].asString();
                 auto port = host["port"].asInt();
-                Host h{std::move(host_str), static_cast<unsigned short>(port)};
-                upstream->add_host(std::move(h));
+                Host htemp{std::move(host_str), static_cast<unsigned short>(port)};
+                upstream->add_host(std::move(htemp));
             }
 
             cfg.servers.servers.emplace(serv_block, std::move(upstream));
@@ -190,7 +191,7 @@ HttpConfig parse_http(const Json::Value &http_obj) {
     }
 
     HttpConfig cfg;
-    parse_common(cfg, http_obj);
+    parse_common(cfg, http_obj, "http");
 
     cfg.client_header_timeout_ms = http_obj.get("client_header_timeout", DEFAULT_CLIENT_HEADER_TIMEOUT).asUInt64();
     cfg.client_body_timeout_ms = http_obj.get("client_body_timeout", DEFAULT_CLIENT_BODY_TIMEOUT).asUInt64();
@@ -210,7 +211,7 @@ StreamConfig parse_stream(const Json::Value &stream_obj) {
         throw std::runtime_error("Stream is empty");
     }
     StreamConfig cfg{};
-    parse_common(cfg, stream_obj);
+    parse_common(cfg, stream_obj, "stream");
 
     cfg.read_timeout_ms = stream_obj.get("read_timeout", DEFAULT_READ_TIMEOUT).asUInt64();
     return cfg;
