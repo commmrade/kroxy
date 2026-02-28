@@ -70,7 +70,7 @@ void parse_common(CommonConfig &cfg, const Json::Value &serv_obj, const std::str
             cfg.tls_cert_path.emplace(std::move(tls_cert_path));
             cfg.tls_key_path.emplace(std::move(tls_key_path));
 
-            if (serv_obj.isMember("tls_verify")) {
+            if (serv_obj.isMember("tls_verify_client")) {
                 cfg.tls_verify_client = serv_obj.get("tls_verify_client", false).asBool();
             }
         }

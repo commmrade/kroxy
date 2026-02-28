@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <iostream>
 #include <sys/wait.h>
-
+#include <spdlog/spdlog.h>
 
 void Master::clear_workers() {
     for (const auto &worker: workers) {

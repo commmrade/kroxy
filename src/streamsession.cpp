@@ -9,7 +9,7 @@
 StreamSession::StreamSession(boost::asio::io_context &ctx, std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx,
                              bool is_client_tls)
     : Session(ctx, std::move(ssl_srv_ctx), is_client_tls),
-      cfg_(std::get<StreamConfig>(Config::instance("").server_config)) {
+      cfg_(std::get<StreamConfig>(Config::instance().server_config)) {
     if (cfg_.file_log.has_value()) {
         logger_.emplace(cfg_.file_log.value());
     }

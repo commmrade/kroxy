@@ -11,7 +11,7 @@ HttpSession::HttpSession(boost::asio::io_context &ctx,
                          std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx,
                          bool is_client_tls)
     : Session(ctx, std::move(ssl_srv_ctx), is_client_tls),
-      cfg_(std::get<HttpConfig>(Config::instance("").server_config)) {
+      cfg_(std::get<HttpConfig>(Config::instance().server_config)) {
     if (cfg_.file_log.has_value()) { logger_.emplace(cfg_.file_log.value()); }
 }
 
@@ -310,9 +310,6 @@ void HttpSession::do_upstream() {
                                             });
             break;
         }
-        default: {
-            throw std::runtime_error("Not implemented");
-        }
     }
 }
 
@@ -413,10 +410,6 @@ void HttpSession::do_downstream() {
                                           [[maybe_unused]] std::size_t bytes_tf) {
                                                   self->do_read_service_body(errc, bytes_tf);
                                               });
-            break;
-        }
-        default: {
-            throw std::runtime_error("Not implemented");
             break;
         }
     }

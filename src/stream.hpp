@@ -95,7 +95,7 @@ public:
     template<typename CompletionToken>
     auto async_handshake(boost::asio::ssl::stream_base::handshake_type type, CompletionToken &&token) {
         if (is_tls()) {
-            stream_.async_handshake(type, std::forward<CompletionToken>(token));
+            return stream_.async_handshake(type, std::forward<CompletionToken>(token));
         } else {
             return boost::asio::async_initiate<CompletionToken,
                 void (boost::system::error_code)>(
