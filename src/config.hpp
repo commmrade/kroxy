@@ -107,6 +107,7 @@ struct CommonConfig {
 
     // tls server stuff
     std::optional<bool> tls_enabled;
+    // These aren't set if tls_enabled isn't set to true
     std::optional<std::string> tls_cert_path;
     std::optional<std::string> tls_key_path;
     std::optional<bool> tls_verify_client;
@@ -183,19 +184,21 @@ struct Config {
         return std::holds_alternative<StreamConfig>(server_config);
     }
 
+    const CommonConfig& common() const;
+
     std::string get_proxy_to() const;
 
     unsigned short get_port() const;
 
-    std::shared_ptr<Upstream> get_upstream();
+    std::shared_ptr<Upstream> get_upstream() const;
 
-    bool is_tls_enabled() const;
+    std::optional<bool> is_tls_enabled() const;
 
-    std::string get_tls_cert_path() const;
+    std::optional<std::string> get_tls_cert_path() const;
 
-    std::string get_tls_key_path() const;
+    std::optional<std::string> get_tls_key_path() const;
 
-    bool get_tls_verify_client() const;
+    std::optional<bool> get_tls_verify_client() const;
 
     bool contains_proxy_to() const;
 

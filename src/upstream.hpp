@@ -21,6 +21,7 @@ struct BalancerData {
 
 struct UpstreamOptions {
     std::optional<bool> proxy_tls_enabled;
+    // These aren't set, if tls isn't enabled
     std::optional<bool> proxy_tls_verify; // verifies serv. cert
     std::optional<std::string> proxy_tls_cert_path;
     std::optional<std::string> proxy_tls_key_path;

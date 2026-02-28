@@ -11,10 +11,10 @@ Server::Server(boost::asio::io_context &ctx) : ctx_(ctx), acceptor_(ctx),
     const auto port = cfg_.get_port();
     setup_socket(ctx, port);
 
-    if (cfg_.is_tls_enabled()) {
-        ssl_ctx_->use_certificate_chain_file(cfg_.get_tls_cert_path());
-        ssl_ctx_->use_private_key_file(cfg_.get_tls_key_path(), boost::asio::ssl::context_base::file_format::pem);
-        if (cfg_.get_tls_verify_client()) {
+    if (cfg_.is_tls_enabled().value_or(false)) {
+        ssl_ctx_->use_certificate_chain_file(cfg_.get_tls_cert_path().value());
+        ssl_ctx_->use_private_key_file(cfg_.get_tls_key_path().value(), boost::asio::ssl::context_base::file_format::pem);
+        if (cfg_.get_tls_verify_client().value_or(false)) {
             ssl_ctx_->set_verify_mode(boost::asio::ssl::verify_peer);
             ssl_ctx_->set_default_verify_paths();
         }
@@ -43,9 +43,9 @@ void Server::setup_socket(boost::asio::io_context &ctx, unsigned short port) {
 std::shared_ptr<Session> Server::make_session() {
     const auto &cfg_ = Config::instance();
     if (cfg_.is_stream()) {
-        return std::make_shared<StreamSession>(ctx_, ssl_ctx_, cfg_.is_tls_enabled());
+        return std::make_shared<StreamSession>(ctx_, ssl_ctx_, cfg_.is_tls_enabled().value_or(false));
     } else {
-        return std::make_shared<HttpSession>(ctx_, ssl_ctx_, cfg_.is_tls_enabled());
+        return std::make_shared<HttpSession>(ctx_, ssl_ctx_, cfg_.is_tls_enabled().value_or(false));
     }
 }
 

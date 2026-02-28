@@ -251,93 +251,50 @@ Config parse_config(const std::filesystem::path &path) {
     return result;
 }
 
-
-std::string Config::get_proxy_to() const {
+const CommonConfig& Config::common() const {
     if (std::holds_alternative<StreamConfig>(server_config)) {
-        auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.proxy_to;
+        const auto& serv_cfg = std::get<StreamConfig>(server_config);
+        return serv_cfg;
     } else {
-        auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.proxy_to;
+        const auto& serv_cfg = std::get<HttpConfig>(server_config);
+        return serv_cfg;
     }
 }
 
-std::shared_ptr<Upstream> Config::get_upstream() {
-    if (std::holds_alternative<StreamConfig>(server_config)) {
-        auto &cfg = std::get<StreamConfig>(server_config);
-        return cfg.servers.servers[cfg.proxy_to];
-    } else {
-        auto &cfg = std::get<HttpConfig>(server_config);
-        return cfg.servers.servers[cfg.proxy_to];
-    }
+std::string Config::get_proxy_to() const {
+    return common().proxy_to;
+}
+
+std::shared_ptr<Upstream> Config::get_upstream() const {
+    const auto& base = common();
+    return base.servers.servers.at(base.proxy_to);
 }
 
 unsigned short Config::get_port() const {
-    if (std::holds_alternative<StreamConfig>(server_config)) {
-        auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.port;
-    } else {
-        auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.port;
-    }
+    return common().port;
 }
 
 bool Config::contains_proxy_to() const {
-    if (std::holds_alternative<StreamConfig>(server_config)) {
-        auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.servers.servers.contains(get_proxy_to());
-    } else {
-        auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.servers.servers.contains(get_proxy_to());
-    }
+    const auto& base = common();
+    return base.servers.servers.contains(base.proxy_to);
 }
 
-bool Config::is_tls_enabled() const {
-    if (std::holds_alternative<StreamConfig>(server_config)) {
-        auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.tls_enabled.value_or(false);
-    } else {
-        auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.tls_enabled.value_or(false);
-    }
+std::optional<bool> Config::is_tls_enabled() const {
+    return common().tls_enabled;
 }
 
-std::string Config::get_tls_cert_path() const {
-    if (std::holds_alternative<StreamConfig>(server_config)) {
-        auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.tls_cert_path.value_or("");
-    } else {
-        auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.tls_cert_path.value_or("");
-    }
+std::optional<std::string> Config::get_tls_cert_path() const {
+    return common().tls_cert_path;
 }
 
-std::string Config::get_tls_key_path() const {
-    if (std::holds_alternative<StreamConfig>(server_config)) {
-        auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.tls_key_path.value_or("");
-    } else {
-        auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.tls_key_path.value_or("");
-    }
+std::optional<std::string> Config::get_tls_key_path() const {
+    return common().tls_key_path;
 }
 
 std::size_t Config::workers_num() const {
-    if (std::holds_alternative<StreamConfig>(server_config)) {
-        auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.workers_num;
-    } else {
-        auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.workers_num;
-    }
+    return common().workers_num;
 }
 
-bool Config::get_tls_verify_client() const {
-    if (std::holds_alternative<StreamConfig>(server_config)) {
-        auto serv_cfg = std::get<StreamConfig>(server_config);
-        return serv_cfg.tls_verify_client.value_or(false);
-    } else {
-        auto serv_cfg = std::get<HttpConfig>(server_config);
-        return serv_cfg.tls_verify_client.value_or(false);
-    }
+std::optional<bool> Config::get_tls_verify_client() const {
+    return common().tls_verify_client;
 }
