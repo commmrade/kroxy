@@ -1,0 +1,464 @@
+//
+// Created by klewy on 2/16/26.
+//
+#include "httpsession.hpp"
+#include <boost/asio/experimental/parallel_group.hpp>
+#include <spdlog/spdlog.h>
+
+#include "upstream.hpp"
+
+HttpSession::HttpSession(boost::asio::io_context &ctx,
+                         std::shared_ptr<boost::asio::ssl::context> ssl_srv_ctx,
+                         bool is_client_tls)
+    : Session(ctx, std::move(ssl_srv_ctx), is_client_tls),
+      cfg_(std::get<HttpConfig>(Config::instance("").server_config)) {
+    if (cfg_.file_log.has_value()) { logger_.emplace(cfg_.file_log.value()); }
+}
+
+void HttpSession::run() {
+    log_ctx_.start_time.emplace(std::chrono::high_resolution_clock::now());
+    log_ctx_.client_addr.emplace(client_sock_.socket().remote_endpoint().address());
+    log_ctx_.bytes_sent_us.emplace(0);
+    log_ctx_.bytes_sent_ds.emplace(0);
+
+    do_upstream();
+}
+
+void HttpSession::process_headers(boost::beast::http::request<boost::beast::http::buffer_body> &msg) {
+    for (const auto &[header_name, header_value]: cfg_.headers) {
+        if (const auto addr_pos = header_value.find(ADDR_HEADER_VAR); addr_pos != std::string::npos) {
+            auto client_addr = client_sock_.socket().remote_endpoint().address().to_string();
+            auto fin_val = header_value;
+            fin_val.replace(addr_pos, ADDR_HEADER_VAR.size(), client_addr);
+            msg.set(header_name, fin_val);
+        } else if (const auto host_pos = header_value.find(HOST_HEADER_VAR); host_pos != std::string::npos) {
+            auto fin_val = header_value;
+            fin_val.replace(host_pos, HOST_HEADER_VAR.size(), current_host_.value().host);
+            msg.set(header_name, fin_val);
+        } else {
+            msg.set(header_name, header_value);
+        }
+    }
+}
+
+
+void HttpSession::check_log() {
+    if (log_ctx_.bytes_sent_us.has_value() && log_ctx_.bytes_sent_ds.has_value() && log_ctx_.start_time.has_value() &&
+        log_ctx_.request_uri.has_value() && log_ctx_.http_status.has_value()
+        && log_ctx_.user_agent.has_value() && log_ctx_.request_method.has_value() && log_ctx_.client_addr.has_value()) {
+        log_and_reset();
+    }
+}
+
+void HttpSession::log_and_reset() {
+    if (logger_.has_value()) {
+        std::string log_msg = cfg_.format_log.format;
+        for (const auto var: cfg_.format_log.used_vars) {
+            switch (var) {
+                case LogFormat::Variable::CLIENT_ADDR: {
+                    replace_variable(log_msg, var, log_ctx_.client_addr.value().to_string());
+                    break;
+                }
+                case LogFormat::Variable::BYTES_SENT_UPSTREAM: {
+                    replace_variable(log_msg, var, std::to_string(log_ctx_.bytes_sent_us.value()));;
+                    break;
+                }
+                case LogFormat::Variable::BYTES_SENT_DOWNSTREAM: {
+                    replace_variable(log_msg, var, std::to_string(log_ctx_.bytes_sent_ds.value()));;
+                    break;
+                }
+                case LogFormat::Variable::PROCESSING_TIME: {
+                    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::high_resolution_clock::now() - log_ctx_.start_time.value());
+                    replace_variable(log_msg, var, std::format("{}ms", diff.count()));
+                    break;
+                }
+                case LogFormat::Variable::REQUEST_URI: {
+                    replace_variable(log_msg, var, log_ctx_.request_uri.value());
+                    break;
+                }
+                case LogFormat::Variable::STATUS: {
+                    replace_variable(log_msg, var, std::to_string(log_ctx_.http_status.value()));
+                    break;
+                }
+                case LogFormat::Variable::HTTP_USER_AGENT: {
+                    replace_variable(log_msg, var, log_ctx_.user_agent.value());
+                    break;
+                }
+                case LogFormat::Variable::REQUEST_METHOD: {
+                    replace_variable(log_msg, var, log_ctx_.request_method.value());
+                    break;
+                }
+                default: {
+                    break;
+                }
+            }
+        }
+        logger_.value().write(log_msg);
+
+        // These are set only here
+        log_ctx_.reset();
+    }
+}
+
+
+void HttpSession::handle_timer(const boost::system::error_code &errc, WaitState state) {
+    if (!errc) {
+        // We need to cancel all operations on these sockets to avoid writing to them when handling timers
+        client_sock_.socket().cancel();
+        if (service_sock_) {
+            service_sock_->socket().cancel();
+        }
+
+        switch (state) {
+            case WaitState::CLIENT_HEADER:
+            case WaitState::CLIENT_BODY:
+            case WaitState::READ:
+            case WaitState::SEND: {
+                spdlog::error("Timed out: waiting for client");
+
+                auto resp = make_timeout_response(TimeoutType::CLIENT);
+                auto resp_ser = std::make_shared<boost::beast::http::response_serializer<
+                    boost::beast::http::string_body> >(*resp);
+
+                prepare_timer(downstream_timer_, WaitState::UNKNOWN, TIMER_HANDLER_TIMEOUT);
+                // If even this times out it will just close the sockets in default branch
+                client_sock_.async_write_message(
+                    *resp_ser, [self = shared_from_base<HttpSession>(), resp, resp_ser](
+                [[maybe_unused]] const boost::system::error_code &errc2, [[maybe_unused]] std::size_t bytes_tf) {
+                        self->close_ses();
+                    });
+                break;
+            }
+            case WaitState::CONNECT:
+            case WaitState::RESOLVE:
+            case WaitState::PROXY_READ:
+            case WaitState::PROXY_SEND: {
+                spdlog::error("Timed out: waiting for service");
+
+                auto resp = make_timeout_response(TimeoutType::SERVICE);
+                auto resp_ser = std::make_shared<boost::beast::http::response_serializer<
+                    boost::beast::http::string_body> >(*resp);
+                prepare_timer(downstream_timer_, WaitState::UNKNOWN, TIMER_HANDLER_TIMEOUT);
+                // If even this times out it will just close the sockets in default branch
+                client_sock_.async_write_message(
+                    *resp_ser, [self = shared_from_base<HttpSession>(), resp, resp_ser](
+                [[maybe_unused]] const boost::system::error_code &errc2, [[maybe_unused]] std::size_t bytes_tf) {
+                        self->close_ses();
+                    });
+                break;
+            }
+            default: {
+                spdlog::error("Timed out for unknown reason: {}", static_cast<int>(state));
+                close_ses();
+                break;
+            }
+        }
+    } else {
+        if (boost::asio::error::operation_aborted != errc) {
+            spdlog::error("Error handling timer: {}", errc.message());
+        }
+    }
+}
+
+void HttpSession::do_read_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
+    if (!errc) {
+        auto &msg = request_p_.value().get();
+        log_ctx_.request_uri.emplace(msg.base().target());
+        log_ctx_.request_method.emplace(msg.base().method_string());
+        if (auto it = msg.find(boost::beast::http::field::user_agent); it != msg.end()) {
+            log_ctx_.user_agent.emplace(it->value());
+        } else {
+            log_ctx_.user_agent.emplace();
+        }
+
+        request_s_.emplace(msg);
+
+        if (service_sock_) {
+            process_headers(msg);
+            // If it isn't a first request, process headers here, since current_host_ is already set, otherwise process headers inside handle_service()
+
+            prepare_timer(upstream_timer_, WaitState::PROXY_SEND, cfg_.proxy_send_timeout_ms);
+            service_sock_->async_write_header(*request_s_,
+                                              [self = shared_from_base<HttpSession>()](
+                                          const boost::system::error_code &errc2,
+                                          [[maybe_unused]] std::size_t bytes_tf2) {
+                                                  self->do_write_service_header(errc2, bytes_tf2);
+                                              });
+        } else {
+            BalancerData data;
+            if (client_sock_.is_tls()) {
+                data.tls_sni = client_sock_.get_sni();
+            }
+            data.URI = msg.base().target();
+            auto const it = msg.find(boost::beast::http::field::host);
+            if (it != msg.end()) {
+                data.header_host = it->value();
+            }
+            data.client_address = client_sock_.socket().remote_endpoint().address();
+
+            connect_service(cfg_, data, [self = shared_from_base<HttpSession>()] {
+                self->prepare_timer(
+                    self->upstream_timer_,
+                    WaitState::PROXY_SEND,
+                    self->cfg_.proxy_send_timeout_ms);
+                self->process_headers(
+                    self->request_p_->get());
+                self->service_sock_->
+                        async_write_header(
+                            *self->request_s_,
+                            [self](
+                        const
+                        boost::system::error_code &
+                        errc2,
+                        [[maybe_unused]] std::size_t
+                        bytes_tf2) {
+                                self->
+                                        do_write_service_header(
+                                            errc2,
+                                            bytes_tf2);
+                            });
+                self->do_downstream();
+            });;
+        }
+    } else {
+        handle_client_read_error(errc, std::format("Reading client header: {}", errc.message()));
+    }
+}
+
+
+void HttpSession::do_write_service_header(const boost::system::error_code &errc,
+                                          [[maybe_unused]] std::size_t bytes_tf) {
+    if (!errc) {
+        log_ctx_.bytes_sent_us.value() += bytes_tf;
+
+        if (!request_p_->is_done()) {
+            upstream_state_ = State::BODY;
+
+            request_p_->get().body().data = us_buf_.data();
+            request_p_->get().body().size = us_buf_.size();
+        } else {
+            check_log();
+        }
+        do_upstream();
+    } else {
+        handle_write_error(errc, std::format("Upstream write header error: {}", errc.message()));
+    }
+}
+
+void HttpSession::do_read_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
+    if (boost::beast::http::error::need_buffer == errc || !errc) {
+        request_p_->get().body().size = us_buf_.size() - request_p_->get().body().size;
+        request_p_->get().body().data = us_buf_.data();
+        request_p_->get().body().more = !request_p_->is_done();
+
+        prepare_timer(upstream_timer_, WaitState::PROXY_SEND, cfg_.proxy_send_timeout_ms);
+        service_sock_->async_write_message(
+            *request_s_,
+            [self = shared_from_base<HttpSession>()](const boost::system::error_code &errc2, std::size_t bytes_tf2) {
+                self->do_write_service_body(errc2, bytes_tf2);
+            });
+    } else {
+        handle_client_read_error(errc, std::format("Reading client body: {}", errc.message()));
+    }
+}
+
+void HttpSession::do_write_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
+    if (errc == boost::beast::http::error::need_buffer || !errc) {
+        log_ctx_.bytes_sent_us.value() += bytes_tf;
+
+        if (request_p_->is_done() && request_s_->is_done()) {
+            check_log();
+            // at this point we wrote everything, so can get back to reading headers (not sure if i call is_done() on
+            // parser or serializer)
+            upstream_state_ = State::HEADERS;
+        }
+        request_p_->get().body().data = us_buf_.data();
+        request_p_->get().body().size = us_buf_.size();
+
+        do_upstream();
+    } else {
+        handle_write_error(errc, std::format("Write service body failed: {}", errc.message()));
+    }
+}
+
+void HttpSession::do_upstream() {
+    switch (upstream_state_) {
+        case State::HEADERS: {
+            request_p_.emplace();
+            upstream_buf_.clear();
+            log_ctx_.start_time.emplace(std::chrono::high_resolution_clock::now());
+
+            prepare_timer(upstream_timer_, WaitState::CLIENT_HEADER, cfg_.client_header_timeout_ms);
+            // TODO: FIX IT: Session waits for headers even if the previous request was Conn: close
+            client_sock_.async_read_header(upstream_buf_,
+                                           *request_p_,
+                                           [self = shared_from_base<HttpSession>()](
+                                       const boost::system::error_code &errc,
+                                       [[maybe_unused]] std::size_t bytes_tf) {
+                                               self->do_read_client_header(errc, bytes_tf);
+                                           });
+            break;
+        }
+        case State::BODY: {
+            prepare_timer(upstream_timer_, WaitState::CLIENT_BODY, cfg_.client_body_timeout_ms);
+            client_sock_.async_read_message(upstream_buf_,
+                                            *request_p_,
+                                            [self = shared_from_base<HttpSession>()](
+                                        const boost::system::error_code &errc, std::size_t bytes_tf) {
+                                                self->do_read_client_body(errc, bytes_tf);
+                                            });
+            break;
+        }
+        default: {
+            throw std::runtime_error("Not implemented");
+        }
+    }
+}
+
+
+void HttpSession::do_read_service_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
+    if (!errc) {
+        auto &msg = response_p_.value().get();
+        log_ctx_.http_status.emplace(static_cast<unsigned int>(msg.base().result()));
+
+        response_s_.emplace(msg);
+
+        prepare_timer(downstream_timer_, WaitState::SEND, cfg_.send_timeout_ms);
+        client_sock_.async_write_header(*response_s_,
+                                        [self = shared_from_base<HttpSession>()](const boost::system::error_code &errc2,
+                                    [[maybe_unused]] std::size_t bytes_tf2) {
+                                            self->do_write_client_header(errc2, bytes_tf2);
+                                        });
+    } else {
+        handle_service_read_error(errc, std::format("Reading service header: {}", errc.message()));
+    }
+}
+
+void HttpSession::do_write_client_header(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
+    if (!errc) {
+        log_ctx_.bytes_sent_ds.value() += bytes_tf;
+
+        // Now we need to start reading the body, considering we may have body bytes in upstream_buf_
+        if (!response_p_->is_done()) {
+            downstream_state_ = State::BODY;
+
+            response_p_->get().body().data = ds_buf_.data();
+            response_p_->get().body().size = ds_buf_.size();
+        } else {
+            check_log();
+        }
+        do_downstream();
+    } else {
+        handle_write_error(errc, std::format("Downstream write header error: {}", errc.message()));
+    }
+}
+
+void HttpSession::do_read_service_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
+    if (boost::beast::http::error::need_buffer == errc || !errc) {
+        response_p_->get().body().size = ds_buf_.size() - response_p_->get().body().size;
+        response_p_->get().body().data = ds_buf_.data();
+        response_p_->get().body().more = !response_p_->is_done();
+
+        prepare_timer(downstream_timer_, WaitState::SEND, cfg_.send_timeout_ms);
+        client_sock_.async_write_message(
+            *response_s_,
+            [self = shared_from_base<HttpSession>()](const boost::system::error_code &errc2, std::size_t bytes_tf2) {
+                self->do_write_client_body(errc2, bytes_tf2);
+            });
+    } else {
+        handle_service_read_error(errc, std::format("Reading service body: {}", errc.message()));
+    }
+}
+
+void HttpSession::do_write_client_body(const boost::system::error_code &errc, [[maybe_unused]] std::size_t bytes_tf) {
+    if (boost::beast::http::error::need_buffer == errc || !errc) {
+        log_ctx_.bytes_sent_ds.value() += bytes_tf;
+
+        if (response_p_->is_done() && response_s_->is_done()) {
+            check_log();
+            downstream_state_ = State::HEADERS;
+        }
+        response_p_->get().body().size = ds_buf_.size();
+        response_p_->get().body().data = ds_buf_.data();
+
+        do_downstream();
+    } else {
+        handle_write_error(errc, std::format("Write client body failed: {}", errc.message()));
+    }
+}
+
+void HttpSession::do_downstream() {
+    switch (downstream_state_) {
+        case State::HEADERS: {
+            response_p_.emplace();
+            downstream_buf_.clear();
+
+            prepare_timer(downstream_timer_, WaitState::PROXY_READ, cfg_.proxy_read_timeout_ms);
+            service_sock_->async_read_header(downstream_buf_,
+                                             *response_p_,
+                                             [self = shared_from_base<HttpSession>()](
+                                         const boost::system::error_code &errc,
+                                         [[maybe_unused]] std::size_t bytes_tf) {
+                                                 self->do_read_service_header(errc, bytes_tf);
+                                             });
+            break;
+        }
+        case State::BODY: {
+            prepare_timer(downstream_timer_, WaitState::PROXY_READ, cfg_.proxy_read_timeout_ms);
+            service_sock_->async_read_message(downstream_buf_,
+                                              *response_p_,
+                                              [self = shared_from_base<HttpSession>()](
+                                          const boost::system::error_code &errc,
+                                          [[maybe_unused]] std::size_t bytes_tf) {
+                                                  self->do_read_service_body(errc, bytes_tf);
+                                              });
+            break;
+        }
+        default: {
+            throw std::runtime_error("Not implemented");
+            break;
+        }
+    }
+}
+
+// HttpSession end
+
+std::shared_ptr<boost::beast::http::response<boost::beast::http::string_body> > make_timeout_response(
+    TimeoutType resp_kind) {
+    auto resp = std::make_shared<boost::beast::http::response<boost::beast::http::string_body> >();
+    resp->set(boost::beast::http::field::content_type, "text/html");
+    resp->set(boost::beast::http::field::connection, "close");
+
+    switch (resp_kind) {
+        case TimeoutType::CLIENT: {
+            resp->result(boost::beast::http::status::request_timeout);
+            resp->body() =
+                    "<!DOCTYPE html>"
+                    "<html>"
+                    "<head><title>408 Request Timeout</title></head>"
+                    "<body>"
+                    "<h1>408 Request Timeout</h1>"
+                    "<p>The server timed out waiting for the request.</p>"
+                    "</body>"
+                    "</html>";
+            break;
+        }
+        case TimeoutType::SERVICE: {
+            resp->result(boost::beast::http::status::gateway_timeout);
+            resp->body() =
+                    "<!DOCTYPE html>"
+                    "<html>"
+                    "<head><title>504 Gateway Timeout</title></head>"
+                    "<body>"
+                    "<h1>504 Gateway Timeout</h1>"
+                    "<p>The server timed out waiting for the request.</p>"
+                    "</body>"
+                    "</html>";
+            break;
+        }
+    }
+    resp->prepare_payload();
+
+    return resp;
+}

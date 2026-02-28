@@ -1,0 +1,15 @@
+{
+  "http": {
+    "servers": {
+      "google": {
+        "proxy_tls_enabled": true,
+        "hosts": [{ "host": "google.com", "port": 443 }]
+      }
+    },
+
+    "port": 8080,
+    "file_log": "/dev/stdout",
+    "format_log": "Bytes sent: $bytes_sent",
+    "proxy_to": "google"
+  }
+}
